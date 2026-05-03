@@ -4,6 +4,8 @@ import {
   createDedupeCache,
   createPersistentDedupe,
   readJsonFileWithFallback,
+  writeJsonFileAtomically,
+  withFileLock,
 } from "../runtime-api.js";
 
 // Persistent TTL: 24 hours — survives restarts & WebSocket reconnects.
@@ -42,6 +44,17 @@ const persistentDedupe = createPersistentDedupe({
   fileMaxEntries: FILE_MAX_ENTRIES,
   resolveFilePath: resolveNamespaceFilePath,
 });
+
+const DEDUP_ROLLBACK_LOCK_OPTIONS = {
+  retries: {
+    retries: 6,
+    factor: 1.35,
+    minTimeout: 8,
+    maxTimeout: 180,
+    randomize: true,
+  },
+  stale: 60_000,
+};
 
 function resolveEventDedupeKey(
   namespace: string,
@@ -122,6 +135,40 @@ export async function recordProcessedFeishuMessage(
   }
   tryRecordMessage(memoryKey);
   return await tryRecordMessagePersistent(normalizedMessageId, namespace, log);
+}
+
+export async function rollbackProcessedFeishuMessage(
+  messageId: string | undefined | null,
+  namespace = "global",
+  log?: (...args: unknown[]) => void,
+): Promise<boolean> {
+  const normalizedMessageId = normalizeMessageId(messageId);
+  const memoryKey = resolveMemoryDedupeKey(namespace, messageId);
+  if (!memoryKey || !normalizedMessageId) {
+    return false;
+  }
+
+  memoryDedupe.delete(memoryKey);
+  persistentDedupe.clearMemory();
+  const filePath = resolveNamespaceFilePath(namespace);
+  try {
+    return await withFileLock(filePath, DEDUP_ROLLBACK_LOCK_OPTIONS, async () => {
+      const { value, exists } = await readJsonFileWithFallback<PersistentDedupeData>(filePath, {});
+      if (value[normalizedMessageId] === undefined) {
+        return false;
+      }
+      delete value[normalizedMessageId];
+      if (exists) {
+        await writeJsonFileAtomically(filePath, value);
+      }
+      return true;
+    });
+  } catch (error) {
+    log?.(`feishu-dedup: persistent rollback failed: ${String(error)}`);
+    return false;
+  } finally {
+    releaseFeishuMessageProcessing(normalizedMessageId, namespace);
+  }
 }
 
 export async function hasProcessedFeishuMessage(
