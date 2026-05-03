@@ -480,6 +480,18 @@ describe("handleFeishuMessage command authorization", () => {
     mockEnsureConfiguredBindingRouteReady.mockReset().mockResolvedValue({ ok: true });
     mockResolveBoundConversation.mockReset().mockReturnValue(null);
     mockTouchBinding.mockReset();
+    mockCreateFeishuReplyDispatcher.mockReset().mockReturnValue({
+      dispatcher: {
+        sendToolResult: vi.fn(),
+        sendBlockReply: vi.fn(),
+        sendFinalReply: vi.fn(),
+        waitForIdle: vi.fn(),
+        getQueuedCounts: vi.fn(() => ({ tool: 0, block: 0, final: 0 })),
+        markComplete: vi.fn(),
+      } as any,
+      replyOptions: {},
+      markDispatchIdle: vi.fn(),
+    });
     mockResolveAgentRoute.mockReturnValue({
       agentId: "main",
       channel: "feishu",
