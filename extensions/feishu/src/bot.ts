@@ -33,7 +33,11 @@ import {
 } from "./bot-content.js";
 import { type FeishuPermissionError, resolveFeishuSenderName } from "./bot-sender-name.js";
 import { createFeishuClient } from "./client.js";
-import { finalizeFeishuMessageProcessing, tryRecordMessagePersistent } from "./dedup.js";
+import {
+  finalizeFeishuMessageProcessing,
+  rollbackProcessedFeishuMessage,
+  tryRecordMessagePersistent,
+} from "./dedup.js";
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { extractMentionTargets, isMentionForwardRequest } from "./mention.js";
 import {
@@ -1141,5 +1145,10 @@ export async function handleFeishuMessage(params: {
     }
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);
+    if (await rollbackProcessedFeishuMessage(ctx.messageId, account.accountId, log)) {
+      log(
+        `feishu[${account.accountId}]: released dedupe record for failed message ${ctx.messageId}; a retry can process it again`,
+      );
+    }
   }
 }

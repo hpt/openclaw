@@ -2318,4 +2318,42 @@ describe("handleFeishuMessage command authorization", () => {
     await Promise.all([dispatchMessage({ cfg, event }), dispatchMessage({ cfg, event })]);
     expect(mockDispatchReplyFromConfig).toHaveBeenCalledTimes(1);
   });
+
+  it("releases the processed marker when dispatch fails so Feishu retries can run", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          dmPolicy: "open",
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-dispatch-retry",
+        },
+      },
+      message: {
+        message_id: "msg-dispatch-retry",
+        chat_id: "oc-dm",
+        chat_type: "p2p",
+        message_type: "text",
+        content: JSON.stringify({ text: "please retry if dispatch fails" }),
+      },
+    };
+
+    mockDispatchReplyFromConfig.mockRejectedValueOnce(new Error("transient dispatch failure"));
+
+    const firstRuntime = await dispatchMessage({ cfg, event });
+    expect(firstRuntime.error).toHaveBeenCalledWith(
+      expect.stringContaining("failed to dispatch message: Error: transient dispatch failure"),
+    );
+
+    await dispatchMessage({ cfg, event });
+
+    expect(mockDispatchReplyFromConfig).toHaveBeenCalledTimes(2);
+  });
 });
