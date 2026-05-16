@@ -348,6 +348,7 @@ export function resolveDiscordChannelIdForFocus(
 export async function resolveFocusTargetSession(params: {
   runs: SubagentRunRecord[];
   token: string;
+  spawnedBy?: string;
 }): Promise<FocusTargetResolution | null> {
   const subagentMatch = resolveSubagentTarget(params.runs, params.token);
   if (subagentMatch.entry) {
@@ -366,12 +367,15 @@ export async function resolveFocusTargetSession(params: {
     return null;
   }
 
+  const spawnedBy = params.spawnedBy?.trim();
+  const withSpawnScope = (attempt: Record<string, string>) =>
+    spawnedBy ? { ...attempt, spawnedBy } : attempt;
   const attempts: Array<Record<string, string>> = [];
-  attempts.push({ key: token });
+  attempts.push(withSpawnScope({ key: token }));
   if (looksLikeSessionId(token)) {
-    attempts.push({ sessionId: token });
+    attempts.push(withSpawnScope({ sessionId: token }));
   }
-  attempts.push({ label: token });
+  attempts.push(withSpawnScope({ label: token }));
 
   for (const attempt of attempts) {
     try {
