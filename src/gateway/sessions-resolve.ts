@@ -16,6 +16,17 @@ import {
 
 export type SessionsResolveResult = { ok: true; key: string } | { ok: false; error: ErrorShape };
 
+function matchesSpawnedByScope(entry: unknown, spawnedBy: string): boolean {
+  if (!entry || typeof entry !== "object") {
+    return false;
+  }
+  if (!spawnedBy) {
+    return true;
+  }
+  const record = entry as { spawnedBy?: unknown; parentSessionKey?: unknown };
+  return record.spawnedBy === spawnedBy || record.parentSessionKey === spawnedBy;
+}
+
 export async function resolveSessionKeyFromResolveParams(params: {
   cfg: OpenClawConfig;
   p: SessionsResolveParams;
@@ -27,6 +38,7 @@ export async function resolveSessionKeyFromResolveParams(params: {
   const sessionId = typeof p.sessionId === "string" ? p.sessionId.trim() : "";
   const hasSessionId = sessionId.length > 0;
   const hasLabel = typeof p.label === "string" && p.label.trim().length > 0;
+  const spawnedBy = typeof p.spawnedBy === "string" ? p.spawnedBy.trim() : "";
   const selectionCount = [hasKey, hasSessionId, hasLabel].filter(Boolean).length;
   if (selectionCount > 1) {
     return {
@@ -47,11 +59,11 @@ export async function resolveSessionKeyFromResolveParams(params: {
   if (hasKey) {
     const target = resolveGatewaySessionStoreTarget({ cfg, key });
     const store = loadSessionStore(target.storePath);
-    if (store[target.canonicalKey]) {
+    if (matchesSpawnedByScope(store[target.canonicalKey], spawnedBy)) {
       return { ok: true, key: target.canonicalKey };
     }
     const legacyKey = target.storeKeys.find((candidate) => store[candidate]);
-    if (!legacyKey) {
+    if (!legacyKey || !matchesSpawnedByScope(store[legacyKey], spawnedBy)) {
       return {
         ok: false,
         error: errorShape(ErrorCodes.INVALID_REQUEST, `No session found: ${key}`),

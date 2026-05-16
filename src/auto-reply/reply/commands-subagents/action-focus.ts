@@ -142,7 +142,11 @@ export async function handleSubagentsFocusAction(
     return stopWithText(`⚠️ ${label} bindings are unavailable for this account.`);
   }
 
-  const focusTarget = await resolveFocusTargetSession({ runs, token });
+  const focusTarget = await resolveFocusTargetSession({
+    runs,
+    token,
+    ...(params.command.senderIsOwner ? {} : { spawnedBy: ctx.requesterKey }),
+  });
   if (!focusTarget) {
     return stopWithText(`⚠️ Unable to resolve focus target: ${token}`);
   }

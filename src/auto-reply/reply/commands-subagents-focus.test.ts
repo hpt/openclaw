@@ -197,6 +197,10 @@ async function focusCodexAcp(
   hoisted.callGatewayMock.mockImplementation(async (request: unknown) => {
     const method = (request as { method?: string }).method;
     if (method === "sessions.resolve") {
+      const params = (request as { params?: Record<string, unknown> }).params;
+      if (params?.label !== "codex-acp") {
+        throw new Error("No session found");
+      }
       return { key: "agent:codex-acp:session-1" };
     }
     return {};
@@ -236,6 +240,35 @@ describe("/focus, /unfocus, /agents", () => {
           introText:
             "⚙️ codex-acp session active (idle auto-unfocus after 24h inactivity). Messages here go directly to this session.",
         }),
+      }),
+    );
+  });
+
+  it("/focus scopes ACP session fallback resolution to the requester for non-owner senders", async () => {
+    await focusCodexAcp();
+
+    expect(hoisted.callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "sessions.resolve",
+        params: {
+          label: "codex-acp",
+          spawnedBy: "agent:main:main",
+        },
+      }),
+    );
+  });
+
+  it("/focus lets owner senders resolve arbitrary ACP session fallbacks", async () => {
+    const params = createDiscordCommandParams("/focus codex-acp");
+    params.command.senderIsOwner = true;
+    await focusCodexAcp(params);
+
+    expect(hoisted.callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "sessions.resolve",
+        params: {
+          label: "codex-acp",
+        },
       }),
     );
   });
