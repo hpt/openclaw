@@ -10,10 +10,14 @@ import {
 } from "../../plugins/provider-runtime.js";
 import { resolveOpenClawAgentDir } from "../agent-paths.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../defaults.js";
-import { resolveGoogleGenerativeAiTransport } from "../google-generative-ai.js";
+import {
+  resolveGoogleGenerativeAiTransport,
+  shouldNormalizeGoogleGenerativeAiProviderConfig,
+} from "../google-generative-ai.js";
 import { buildModelAliasLines } from "../model-alias-lines.js";
 import { isSecretRefHeaderValueMarker } from "../model-auth-markers.js";
 import { normalizeModelCompat } from "../model-compat.js";
+import { normalizeGoogleModelId } from "../model-id-normalization.js";
 import { findNormalizedProviderValue, normalizeProviderId } from "../model-selection.js";
 import {
   buildSuppressedBuiltInModelError,
@@ -141,6 +145,21 @@ function resolveConfiguredProviderConfig(
   return findNormalizedProviderValue(configuredProviders, provider);
 }
 
+function normalizeModelIdForConfiguredProvider(params: {
+  provider: string;
+  modelId: string;
+  providerConfig?: InlineProviderConfig;
+}): string {
+  const providerKey = normalizeProviderId(params.provider);
+  if (
+    params.providerConfig &&
+    shouldNormalizeGoogleGenerativeAiProviderConfig(providerKey, params.providerConfig)
+  ) {
+    return normalizeGoogleModelId(params.modelId);
+  }
+  return params.modelId;
+}
+
 function applyConfiguredProviderOverrides(params: {
   discoveredModel: Model<Api>;
   providerConfig?: InlineProviderConfig;
@@ -209,6 +228,10 @@ export function buildInlineProviderModels(
     if (!trimmed) {
       return [];
     }
+    const normalizeGoogleModelIds = shouldNormalizeGoogleGenerativeAiProviderConfig(
+      trimmed,
+      entry ?? {},
+    );
     const providerHeaders = sanitizeModelHeaders(entry?.headers, {
       stripSecretRefMarkers: true,
     });
@@ -217,8 +240,10 @@ export function buildInlineProviderModels(
         api: model.api ?? entry?.api,
         baseUrl: entry?.baseUrl,
       });
+      const id = normalizeGoogleModelIds ? normalizeGoogleModelId(model.id) : model.id;
       return {
         ...model,
+        id,
         provider: trimmed,
         baseUrl: transport.baseUrl,
         api: transport.api,
@@ -409,7 +434,16 @@ export function resolveModelWithRegistry(params: {
   agentDir?: string;
   runtimeHooks?: ProviderRuntimeHooks;
 }): Model<Api> | undefined {
-  const explicitModel = resolveExplicitModelWithRegistry(params);
+  const providerConfig = resolveConfiguredProviderConfig(params.cfg, params.provider);
+  const normalizedParams = {
+    ...params,
+    modelId: normalizeModelIdForConfiguredProvider({
+      provider: params.provider,
+      modelId: params.modelId,
+      providerConfig,
+    }),
+  };
+  const explicitModel = resolveExplicitModelWithRegistry(normalizedParams);
   if (explicitModel?.kind === "suppressed") {
     return undefined;
   }
@@ -417,12 +451,12 @@ export function resolveModelWithRegistry(params: {
     return explicitModel.model;
   }
 
-  const pluginDynamicModel = resolvePluginDynamicModelWithRegistry(params);
+  const pluginDynamicModel = resolvePluginDynamicModelWithRegistry(normalizedParams);
   if (pluginDynamicModel) {
     return pluginDynamicModel;
   }
 
-  return resolveConfiguredFallbackModel(params);
+  return resolveConfiguredFallbackModel(normalizedParams);
 }
 
 export function resolveModel(
@@ -483,9 +517,15 @@ export async function resolveModelAsync(
   const resolvedAgentDir = agentDir ?? resolveOpenClawAgentDir();
   const authStorage = options?.authStorage ?? discoverAuthStorage(resolvedAgentDir);
   const modelRegistry = options?.modelRegistry ?? discoverModels(authStorage, resolvedAgentDir);
-  const explicitModel = resolveExplicitModelWithRegistry({
+  const providerConfig = resolveConfiguredProviderConfig(cfg, provider);
+  const normalizedModelId = normalizeModelIdForConfiguredProvider({
     provider,
     modelId,
+    providerConfig,
+  });
+  const explicitModel = resolveExplicitModelWithRegistry({
+    provider,
+    modelId: normalizedModelId,
     modelRegistry,
     cfg,
     agentDir: resolvedAgentDir,
@@ -498,7 +538,6 @@ export async function resolveModelAsync(
       modelRegistry,
     };
   }
-  const providerConfig = resolveConfiguredProviderConfig(cfg, provider);
   const runtimeHooks = options?.runtimeHooks ?? DEFAULT_PROVIDER_RUNTIME_HOOKS;
   const resolveDynamicAttempt = async (attemptOptions?: { clearHookCache?: boolean }) => {
     if (attemptOptions?.clearHookCache) {
@@ -511,14 +550,14 @@ export async function resolveModelAsync(
         config: cfg,
         agentDir: resolvedAgentDir,
         provider,
-        modelId,
+        modelId: normalizedModelId,
         modelRegistry,
         providerConfig,
       },
     });
     return resolveModelWithRegistry({
       provider,
-      modelId,
+      modelId: normalizedModelId,
       modelRegistry,
       cfg,
       agentDir: resolvedAgentDir,

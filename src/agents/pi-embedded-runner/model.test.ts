@@ -182,7 +182,7 @@ describe("buildInlineProviderModels", () => {
       "google-paid ": {
         baseUrl: "https://generativelanguage.googleapis.com",
         api: "google-generative-ai",
-        models: [makeModel("gemini-2.5-pro")],
+        models: [makeModel("gemini-3-pro")],
       },
     };
 
@@ -191,6 +191,7 @@ describe("buildInlineProviderModels", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       provider: "google-paid",
+      id: "gemini-3-pro-preview",
       api: "google-generative-ai",
       baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     });
@@ -319,6 +320,35 @@ describe("resolveModel", () => {
     const result = resolveModelForTest("google-paid", "missing-model", "/tmp/agent", cfg);
 
     expect(result.model?.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
+  });
+
+  it("normalizes Gemini preview aliases for custom Google Generative AI providers", () => {
+    const cfg = {
+      models: {
+        providers: {
+          "google-paid": {
+            baseUrl: "https://generativelanguage.googleapis.com",
+            api: "google-generative-ai",
+            models: [
+              {
+                ...makeModel("gemini-3-pro"),
+                contextWindow: 1048576,
+                maxTokens: 65536,
+              },
+            ],
+          },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const result = resolveModelForTest("google-paid", "gemini-3-pro", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model?.id).toBe("gemini-3-pro-preview");
+    expect(result.model?.api).toBe("google-generative-ai");
+    expect(result.model?.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
+    expect(result.model?.contextWindow).toBe(1048576);
+    expect(result.model?.maxTokens).toBe(65536);
   });
 
   it("normalizes configured Google override baseUrls when provider api is omitted", () => {
