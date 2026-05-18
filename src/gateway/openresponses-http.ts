@@ -1084,13 +1084,12 @@ export async function handleOpenResponsesHttpRequest(
         usage: finalUsage,
       });
 
+      closed = true;
+      unsubscribe();
       rememberResponseSession();
       writeSseEvent(res, { type: "response.failed", response: errorResponse });
-      emitAgentEvent({
-        runId: responseId,
-        stream: "lifecycle",
-        data: { phase: "error" },
-      });
+      writeDone(res);
+      res.end();
     } finally {
       if (!closed) {
         // Emit lifecycle end to trigger completion
