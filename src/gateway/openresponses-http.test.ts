@@ -661,6 +661,39 @@ describe("OpenResponses HTTP API (e2e)", () => {
     }
   });
 
+  it("emits one failed terminal event when streamed responses fail", async () => {
+    const port = enabledPort;
+    agentCommand.mockClear();
+    agentCommand.mockRejectedValueOnce(new Error("agent crashed") as never);
+
+    const res = await postResponses(port, {
+      stream: true,
+      model: "openclaw",
+      input: "hi",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/event-stream");
+
+    const text = await res.text();
+    const events = parseSseEvents(text);
+    const eventTypes = events.map((event) => event.event).filter(Boolean);
+
+    expect(eventTypes).toContain("response.failed");
+    expect(eventTypes).not.toContain("response.completed");
+    expect(eventTypes).not.toContain("response.output_text.done");
+    expect(eventTypes).not.toContain("response.content_part.done");
+    expect(eventTypes).not.toContain("response.output_item.done");
+    expect(events.some((event) => event.data === "[DONE]")).toBe(true);
+
+    const failed = events.find((event) => event.event === "response.failed");
+    const failedPayload = JSON.parse(failed?.data ?? "{}") as {
+      response?: { status?: string; error?: { code?: string } };
+    };
+    expect(failedPayload.response?.status).toBe("failed");
+    expect(failedPayload.response?.error?.code).toBe("api_error");
+  });
+
   it("preserves assistant text alongside non-stream function_call output", async () => {
     const port = enabledPort;
     agentCommand.mockClear();
