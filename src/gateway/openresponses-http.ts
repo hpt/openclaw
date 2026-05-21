@@ -858,6 +858,17 @@ export async function handleOpenResponsesHttpRequest(
     maybeFinalize();
   };
 
+  const updateFinalizeText = (text: string) => {
+    const requested = finalizeRequested;
+    if (!requested || !text) {
+      return;
+    }
+    finalizeRequested = {
+      status: requested.status,
+      text,
+    };
+  };
+
   // Send initial events
   const initialResponse = createResponseResource({
     id: responseId,
@@ -1067,9 +1078,7 @@ export async function handleOpenResponsesHttpRequest(
         });
       }
 
-      if (finalizeRequested && accumulatedText) {
-        finalizeRequested = { ...finalizeRequested, text: accumulatedText };
-      }
+      updateFinalizeText(accumulatedText);
       maybeFinalize();
     } catch (err) {
       logWarn(`openresponses: streaming response failed: ${String(err)}`);
