@@ -763,9 +763,15 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
 
       {
         agentCommand.mockClear();
-        agentCommand.mockResolvedValueOnce({
-          payloads: [{ text: "hello" }],
-        } as never);
+        agentCommand.mockImplementationOnce((async (opts: unknown) => {
+          const runId = (opts as { runId?: string }).runId ?? "";
+          emitAgentEvent({
+            runId,
+            stream: "lifecycle",
+            data: { phase: "end" },
+          });
+          return { payloads: [{ text: "hello" }] };
+        }) as never);
 
         const fallbackRes = await postChatCompletions(port, {
           stream: true,
