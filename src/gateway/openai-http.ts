@@ -556,15 +556,8 @@ export async function handleOpenAiHttpRequest(
       return;
     }
 
-    if (evt.stream === "lifecycle") {
-      const phase = evt.data?.phase;
-      if (phase === "end" || phase === "error") {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
-      }
-    }
+    // The agent can emit lifecycle:end before its promise resolves with payload
+    // text, so streaming completion is finalized in the async task below.
   });
 
   req.on("close", () => {
