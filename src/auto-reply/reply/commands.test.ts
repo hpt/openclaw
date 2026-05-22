@@ -1263,10 +1263,14 @@ describe("handleCommands /allowlist", () => {
                 allowFrom: ["123", "789"],
               });
 
-              const params = buildPolicyParams("/allowlist add dm 789", {
-                commands: { text: true, config: true },
-                channels: { telegram: { allowFrom: ["123"] } },
-              } as OpenClawConfig, { SenderId: "123" });
+              const params = buildPolicyParams(
+                "/allowlist add dm 789",
+                {
+                  commands: { text: true, config: true },
+                  channels: { telegram: { allowFrom: ["123"] } },
+                } as OpenClawConfig,
+                { SenderId: "123" },
+              );
               const result = await handleCommands(params);
 
               expect(result.shouldContinue).toBe(false);
