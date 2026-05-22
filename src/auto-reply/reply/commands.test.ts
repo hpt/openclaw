@@ -1266,7 +1266,7 @@ describe("handleCommands /allowlist", () => {
               const params = buildPolicyParams("/allowlist add dm 789", {
                 commands: { text: true, config: true },
                 channels: { telegram: { allowFrom: ["123"] } },
-              } as OpenClawConfig);
+              } as OpenClawConfig, { SenderId: "123" });
               const result = await handleCommands(params);
 
               expect(result.shouldContinue).toBe(false);
@@ -1307,6 +1307,7 @@ describe("handleCommands /allowlist", () => {
             } as OpenClawConfig,
             {
               AccountId: "work",
+              SenderId: "123",
             },
           );
           const result = await handleCommands(params);
@@ -1326,12 +1327,35 @@ describe("handleCommands /allowlist", () => {
     }
   });
 
+  it("blocks delegated command users from editing allowlists", async () => {
+    const cfg = {
+      commands: {
+        text: true,
+        config: true,
+        allowFrom: { telegram: ["delegate"] },
+        ownerAllowFrom: ["owner"],
+      },
+      channels: { telegram: { allowFrom: ["owner"] } },
+    } as OpenClawConfig;
+    const params = buildPolicyParams("/allowlist add dm 789", cfg, { SenderId: "delegate" });
+
+    expect(params.command.isAuthorizedSender).toBe(true);
+    expect(params.command.senderIsOwner).toBe(false);
+
+    const result = await handleCommands(params);
+
+    expect(result.shouldContinue).toBe(false);
+    expect(writeConfigFileMock).not.toHaveBeenCalled();
+    expect(addChannelAllowFromStoreEntryMock).not.toHaveBeenCalled();
+  });
+
   it("blocks config-targeted /allowlist edits when the target account disables writes", async () => {
     const previousWriteCount = writeConfigFileMock.mock.calls.length;
     const cfg = {
       commands: { text: true, config: true },
       channels: {
         telegram: {
+          allowFrom: ["123"],
           configWrites: true,
           accounts: {
             work: { configWrites: false, allowFrom: ["123"] },
@@ -1347,6 +1371,7 @@ describe("handleCommands /allowlist", () => {
       AccountId: "default",
       Provider: "telegram",
       Surface: "telegram",
+      SenderId: "123",
     });
     const result = await handleCommands(params);
 
@@ -1370,7 +1395,7 @@ describe("handleCommands /allowlist", () => {
       commands: { text: true, config: true },
       channels: { telegram: { allowFrom: ["123"] } },
     } as OpenClawConfig;
-    const params = buildPolicyParams("/allowlist remove dm --store 789", cfg);
+    const params = buildPolicyParams("/allowlist remove dm --store 789", cfg, { SenderId: "123" });
     const result = await handleCommands(params);
 
     expect(result.shouldContinue).toBe(false);
@@ -1451,6 +1476,7 @@ describe("handleCommands /allowlist", () => {
         const params = buildPolicyParams(`/allowlist remove dm ${testCase.removeId}`, cfg, {
           Provider: testCase.provider,
           Surface: testCase.provider,
+          SenderId: testCase.removeId,
         });
         const result = await handleCommands(params);
 
