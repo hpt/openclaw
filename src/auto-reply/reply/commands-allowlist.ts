@@ -19,6 +19,7 @@ import {
 } from "../../routing/session-key.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
 import {
+  rejectNonOwnerCommand,
   rejectUnauthorizedCommand,
   requireCommandFlagEnabled,
   requireGatewayClientScopeForInternalChannel,
@@ -394,6 +395,10 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
   });
   if (missingAdminScope) {
     return missingAdminScope;
+  }
+  const nonOwner = rejectNonOwnerCommand(params, "/allowlist");
+  if (nonOwner) {
+    return nonOwner;
   }
 
   const disabled = requireCommandFlagEnabled(params.cfg, {
