@@ -559,6 +559,11 @@ export async function handleOpenAiHttpRequest(
     if (evt.stream === "lifecycle") {
       const phase = evt.data?.phase;
       if (phase === "end" || phase === "error") {
+        if (!sawAssistantDelta) {
+          // CLI-backed runs can emit only final payload text; keep the stream
+          // open until the awaited command can write that fallback below.
+          return;
+        }
         closed = true;
         unsubscribe();
         writeDone(res);

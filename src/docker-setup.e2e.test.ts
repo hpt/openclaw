@@ -241,6 +241,22 @@ describe("scripts/docker/setup.sh", () => {
     expect(log).not.toContain("run --rm openclaw-cli onboard --mode local --no-install-daemon");
   });
 
+  it("normalizes Compose-style gateway ports for Control UI origins", async () => {
+    const activeSandbox = requireSandbox(sandbox);
+
+    await resetDockerLog(activeSandbox);
+    const result = runDockerSetup(activeSandbox, {
+      OPENCLAW_GATEWAY_PORT: "127.0.0.1:18789",
+    });
+    expect(result.status).toBe(0);
+
+    const log = await readDockerLog(activeSandbox);
+    expect(log).toContain(
+      'config set gateway.controlUi.allowedOrigins ["http://localhost:18789","http://127.0.0.1:18789"] --strict-json',
+    );
+    expect(log).not.toContain("http://localhost:127.0.0.1:18789");
+  });
+
   it("avoids shared-network openclaw-cli before the gateway is started", async () => {
     const activeSandbox = requireSandbox(sandbox);
 
