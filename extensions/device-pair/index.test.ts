@@ -386,6 +386,10 @@ describe("device-pair /pair qr", () => {
 });
 
 describe("device-pair /pair approve", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("rejects internal gateway callers without operator.pairing", async () => {
     vi.mocked(listDevicePairing).mockResolvedValueOnce({
       pending: [
@@ -466,7 +470,48 @@ describe("device-pair /pair approve", () => {
       }),
     );
 
-    expect(vi.mocked(approveDevicePairing)).toHaveBeenCalledWith("req-1");
+    expect(vi.mocked(approveDevicePairing)).toHaveBeenCalledWith("req-1", {
+      callerScopes: ["operator.write", "operator.pairing"],
+    });
     expect(result).toEqual({ text: "✅ Paired Victim Phone (ios)." });
+  });
+
+  it("rejects internal gateway approvals missing requested operator scopes", async () => {
+    vi.mocked(listDevicePairing).mockResolvedValueOnce({
+      pending: [
+        {
+          requestId: "req-1",
+          deviceId: "admin-phone",
+          publicKey: "admin-public-key",
+          displayName: "Admin Phone",
+          platform: "ios",
+          role: "operator",
+          scopes: ["operator.admin"],
+          ts: Date.now(),
+        },
+      ],
+      paired: [],
+    });
+    vi.mocked(approveDevicePairing).mockResolvedValueOnce({
+      status: "forbidden",
+      missingScope: "operator.admin",
+    });
+
+    const command = registerPairCommand();
+    const result = await command.handler(
+      createCommandContext({
+        channel: "webchat",
+        args: "approve latest",
+        commandBody: "/pair approve latest",
+        gatewayClientScopes: ["operator.pairing"],
+      }),
+    );
+
+    expect(vi.mocked(approveDevicePairing)).toHaveBeenCalledWith("req-1", {
+      callerScopes: ["operator.pairing"],
+    });
+    expect(result).toEqual({
+      text: "⚠️ This pairing request requires operator.admin.",
+    });
   });
 });
