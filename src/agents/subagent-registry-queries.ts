@@ -45,6 +45,10 @@ export function listRunsForRequesterFromRuns(
     if (entry.requesterSessionKey !== key) {
       return false;
     }
+    const latestForChildSession = findLatestRunForChildSession(runs, entry.childSessionKey);
+    if (!latestForChildSession || latestForChildSession.requesterSessionKey !== key) {
+      return false;
+    }
     if (typeof lowerBound === "number" && entry.createdAt < lowerBound) {
       return false;
     }

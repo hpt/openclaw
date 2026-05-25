@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseGatewayPortEnvValue } from "../config/paths.js";
 import { isGatewayArgv } from "../infra/gateway-process-argv.js";
 import { findVerifiedGatewayListenerPidsOnPortSync } from "../infra/gateway-processes.js";
 import { inspectPortUsage } from "../infra/ports.js";
@@ -314,12 +315,7 @@ function launchFallbackTaskScript(scriptPath: string): void {
 }
 
 function resolveConfiguredGatewayPort(env: GatewayServiceEnv): number | null {
-  const raw = env.OPENCLAW_GATEWAY_PORT?.trim();
-  if (!raw) {
-    return null;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return parseGatewayPortEnvValue(env.OPENCLAW_GATEWAY_PORT);
 }
 
 function parsePositivePort(raw: string | undefined): number | null {
@@ -358,7 +354,7 @@ async function resolveScheduledTaskPort(env: GatewayServiceEnv): Promise<number 
   const command = await readScheduledTaskCommand(env).catch(() => null);
   return (
     parsePortFromProgramArguments(command?.programArguments) ??
-    parsePositivePort(command?.environment?.OPENCLAW_GATEWAY_PORT) ??
+    parseGatewayPortEnvValue(command?.environment?.OPENCLAW_GATEWAY_PORT) ??
     resolveConfiguredGatewayPort(env)
   );
 }

@@ -251,7 +251,7 @@ export function resolveOAuthPath(
   return path.join(resolveOAuthDir(env, stateDir), OAUTH_FILENAME);
 }
 
-function parseGatewayPortEnvValue(raw: string | undefined): number | null {
+export function parseGatewayPortEnvValue(raw: string | undefined): number | null {
   const trimmed = raw?.trim();
   if (!trimmed) {
     return null;

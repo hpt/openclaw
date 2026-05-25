@@ -99,6 +99,27 @@ read_env_gateway_token() {
   fi
 }
 
+resolve_gateway_port_number() {
+  local value="$1"
+  local suffix=""
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$value"
+    return 0
+  fi
+  if [[ "$value" =~ ^\[[^]]+\]:[0-9]+$ ]]; then
+    suffix="${value##*:}"
+  elif [[ "$value" == *:* && "$value" != *:*:* ]]; then
+    suffix="${value##*:}"
+  else
+    return 1
+  fi
+  if [[ "$suffix" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$suffix"
+    return 0
+  fi
+  return 1
+}
+
 ensure_control_ui_allowed_origins() {
   if [[ "${OPENCLAW_GATEWAY_BIND}" == "loopback" ]]; then
     return 0
@@ -106,7 +127,9 @@ ensure_control_ui_allowed_origins() {
 
   local allowed_origin_json
   local current_allowed_origins
-  allowed_origin_json="$(printf '["http://localhost:%s","http://127.0.0.1:%s"]' "$OPENCLAW_GATEWAY_PORT" "$OPENCLAW_GATEWAY_PORT")"
+  local gateway_port_for_origin
+  gateway_port_for_origin="$(resolve_gateway_port_number "$OPENCLAW_GATEWAY_PORT")"
+  allowed_origin_json="$(printf '["http://localhost:%s","http://127.0.0.1:%s"]' "$gateway_port_for_origin" "$gateway_port_for_origin")"
   current_allowed_origins="$(
     run_prestart_cli config get gateway.controlUi.allowedOrigins 2>/dev/null || true
   )"
