@@ -168,6 +168,23 @@ describe("Scheduled Task stop/restart cleanup", () => {
     });
   });
 
+  it("uses the published port from Compose-style gateway port env values", async () => {
+    await withWindowsEnv("openclaw-win-stop-compose-port-", async ({ env }) => {
+      env.OPENCLAW_GATEWAY_PORT = "127.0.0.1:18789";
+      const stdout = new PassThrough();
+      pushSuccessfulSchtasksResponses(3);
+      findVerifiedGatewayListenerPidsOnPortSync.mockReturnValue([4242]);
+      inspectPortUsage
+        .mockResolvedValueOnce(busyPortUsage(4242))
+        .mockResolvedValueOnce(freePortUsage());
+
+      await stopScheduledTask({ env, stdout });
+
+      expect(findVerifiedGatewayListenerPidsOnPortSync).toHaveBeenCalledWith(GATEWAY_PORT);
+      expect(inspectPortUsage).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("kills lingering verified gateway listeners and waits for port release before restart", async () => {
     await withPreparedGatewayTask(async ({ env, stdout }) => {
       pushSuccessfulSchtasksResponses(4);

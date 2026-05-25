@@ -180,6 +180,10 @@ describe("subagent registry query regressions", () => {
 
     expect(countPendingDescendantRunsFromRuns(runs, oldParentSessionKey)).toBe(0);
     expect(countPendingDescendantRunsFromRuns(runs, newParentSessionKey)).toBe(1);
+    expect(listRunsForRequesterFromRuns(runs, oldParentSessionKey)).toEqual([]);
+    expect(listRunsForRequesterFromRuns(runs, newParentSessionKey).map((run) => run.runId)).toEqual(
+      ["run-child-current-parent"],
+    );
   });
 
   it("regression excluding current run, countPendingDescendantRunsExcludingRun keeps sibling gating intact", () => {
