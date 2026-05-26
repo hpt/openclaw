@@ -858,6 +858,14 @@ export async function handleOpenResponsesHttpRequest(
     maybeFinalize();
   };
 
+  const updatePendingFinalizeText = (text: string) => {
+    const requested = finalizeRequested;
+    if (!requested) {
+      return;
+    }
+    finalizeRequested = { status: requested.status, text };
+  };
+
   // Send initial events
   const initialResponse = createResponseResource({
     id: responseId,
@@ -1057,9 +1065,7 @@ export async function handleOpenResponsesHttpRequest(
 
         accumulatedText = content;
         sawAssistantDelta = true;
-        if (finalizeRequested) {
-          finalizeRequested = { ...finalizeRequested, text: content };
-        }
+        updatePendingFinalizeText(content);
 
         writeSseEvent(res, {
           type: "response.output_text.delta",
