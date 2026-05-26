@@ -526,8 +526,20 @@ export async function handleOpenAiHttpRequest(
   let wroteRole = false;
   let sawAssistantDelta = false;
   let closed = false;
+  let commandSettled = false;
+  let unsubscribe = () => {};
 
-  const unsubscribe = onAgentEvent((evt) => {
+  const closeStream = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    unsubscribe();
+    writeDone(res);
+    res.end();
+  };
+
+  unsubscribe = onAgentEvent((evt) => {
     if (evt.runId !== runId) {
       return;
     }
@@ -559,10 +571,9 @@ export async function handleOpenAiHttpRequest(
     if (evt.stream === "lifecycle") {
       const phase = evt.data?.phase;
       if (phase === "end" || phase === "error") {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
+        if (commandSettled) {
+          closeStream();
+        }
       }
     }
   });
@@ -613,12 +624,8 @@ export async function handleOpenAiHttpRequest(
         data: { phase: "error" },
       });
     } finally {
-      if (!closed) {
-        closed = true;
-        unsubscribe();
-        writeDone(res);
-        res.end();
-      }
+      commandSettled = true;
+      closeStream();
     }
   })();
 

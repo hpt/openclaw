@@ -858,6 +858,14 @@ export async function handleOpenResponsesHttpRequest(
     maybeFinalize();
   };
 
+  const updatePendingFinalizeText = (text: string) => {
+    const requested = finalizeRequested;
+    if (!requested) {
+      return;
+    }
+    finalizeRequested = { status: requested.status, text };
+  };
+
   // Send initial events
   const initialResponse = createResponseResource({
     id: responseId,
@@ -1040,8 +1048,6 @@ export async function handleOpenResponsesHttpRequest(
         return;
       }
 
-      maybeFinalize();
-
       if (closed) {
         return;
       }
@@ -1059,6 +1065,7 @@ export async function handleOpenResponsesHttpRequest(
 
         accumulatedText = content;
         sawAssistantDelta = true;
+        updatePendingFinalizeText(content);
 
         writeSseEvent(res, {
           type: "response.output_text.delta",
@@ -1068,6 +1075,8 @@ export async function handleOpenResponsesHttpRequest(
           delta: content,
         });
       }
+
+      maybeFinalize();
     } catch (err) {
       logWarn(`openresponses: streaming response failed: ${String(err)}`);
       if (closed) {
