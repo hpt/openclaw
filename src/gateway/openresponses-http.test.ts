@@ -636,6 +636,28 @@ describe("OpenResponses HTTP API (e2e)", () => {
       expect(fallbackText).toContain("hello");
 
       agentCommand.mockClear();
+      agentCommand.mockImplementationOnce((async (opts: unknown) => {
+        const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+        emitAgentEvent({
+          runId,
+          stream: "lifecycle",
+          data: { phase: "end" },
+        });
+        await Promise.resolve();
+        return { payloads: [{ text: "late hello" }] };
+      }) as never);
+
+      const resFallbackAfterEnd = await postResponses(port, {
+        stream: true,
+        model: "openclaw",
+        input: "hi",
+      });
+      expect(resFallbackAfterEnd.status).toBe(200);
+      const fallbackAfterEndText = await resFallbackAfterEnd.text();
+      expect(fallbackAfterEndText).toContain("[DONE]");
+      expect(fallbackAfterEndText).toContain("late hello");
+
+      agentCommand.mockClear();
       agentCommand.mockResolvedValueOnce({
         payloads: [{ text: "hello" }],
       } as never);

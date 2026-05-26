@@ -1040,8 +1040,6 @@ export async function handleOpenResponsesHttpRequest(
         return;
       }
 
-      maybeFinalize();
-
       if (closed) {
         return;
       }
@@ -1059,6 +1057,9 @@ export async function handleOpenResponsesHttpRequest(
 
         accumulatedText = content;
         sawAssistantDelta = true;
+        if (finalizeRequested) {
+          finalizeRequested = { ...finalizeRequested, text: content };
+        }
 
         writeSseEvent(res, {
           type: "response.output_text.delta",
@@ -1068,6 +1069,8 @@ export async function handleOpenResponsesHttpRequest(
           delta: content,
         });
       }
+
+      maybeFinalize();
     } catch (err) {
       logWarn(`openresponses: streaming response failed: ${String(err)}`);
       if (closed) {

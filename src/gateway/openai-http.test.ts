@@ -780,6 +780,30 @@ describe("OpenAI-compatible HTTP API (e2e)", () => {
 
       {
         agentCommand.mockClear();
+        agentCommand.mockImplementationOnce((async (opts: unknown) => {
+          const runId = (opts as { runId?: string } | undefined)?.runId ?? "";
+          emitAgentEvent({
+            runId,
+            stream: "lifecycle",
+            data: { phase: "end" },
+          });
+          await Promise.resolve();
+          return { payloads: [{ text: "late hello" }] };
+        }) as never);
+
+        const fallbackAfterEndRes = await postChatCompletions(port, {
+          stream: true,
+          model: "openclaw",
+          messages: [{ role: "user", content: "hi" }],
+        });
+        expect(fallbackAfterEndRes.status).toBe(200);
+        const fallbackAfterEndText = await fallbackAfterEndRes.text();
+        expect(fallbackAfterEndText).toContain("[DONE]");
+        expect(fallbackAfterEndText).toContain("late hello");
+      }
+
+      {
+        agentCommand.mockClear();
         agentCommand.mockRejectedValueOnce(new Error("boom"));
 
         const errorRes = await postChatCompletions(port, {
