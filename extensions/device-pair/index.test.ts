@@ -386,6 +386,12 @@ describe("device-pair /pair qr", () => {
 });
 
 describe("device-pair /pair approve", () => {
+  beforeEach(() => {
+    vi.mocked(listDevicePairing).mockReset();
+    vi.mocked(listDevicePairing).mockResolvedValue({ pending: [], paired: [] });
+    vi.mocked(approveDevicePairing).mockReset();
+  });
+
   it("rejects internal gateway callers without operator.pairing", async () => {
     vi.mocked(listDevicePairing).mockResolvedValueOnce({
       pending: [
