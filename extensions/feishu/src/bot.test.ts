@@ -913,7 +913,7 @@ describe("handleFeishuMessage command authorization", () => {
     expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
         ChatType: "group",
-        MessageId: "msg-unknown-bot-id-mention",
+        MessageSid: "msg-unknown-bot-id-mention",
         SenderId: "ou-user",
       }),
     );
