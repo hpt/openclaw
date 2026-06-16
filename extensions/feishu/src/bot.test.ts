@@ -870,6 +870,56 @@ describe("handleFeishuMessage command authorization", () => {
     );
   });
 
+  it("does not drop requireMention group messages while bot identity is unknown", async () => {
+    mockShouldComputeCommandAuthorized.mockReturnValue(false);
+
+    const cfg: ClawdbotConfig = {
+      channels: {
+        feishu: {
+          groupPolicy: "open",
+          groups: {
+            "oc-group": {
+              requireMention: true,
+            },
+          },
+        },
+      },
+    } as ClawdbotConfig;
+
+    const event: FeishuMessageEvent = {
+      sender: {
+        sender_id: {
+          open_id: "ou-user",
+        },
+      },
+      message: {
+        message_id: "msg-unknown-bot-id-mention",
+        chat_id: "oc-group",
+        chat_type: "group",
+        message_type: "text",
+        content: JSON.stringify({ text: "@Bot please help" }),
+        mentions: [
+          {
+            key: "@_user_1",
+            id: { open_id: "ou-bot-unresolved" },
+            name: "Bot",
+          },
+        ],
+      },
+    };
+
+    await dispatchMessage({ cfg, event });
+
+    expect(mockFinalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ChatType: "group",
+        MessageSid: "msg-unknown-bot-id-mention",
+        SenderId: "ou-user",
+      }),
+    );
+    expect(mockDispatchReplyFromConfig).toHaveBeenCalled();
+  });
+
   it("normalizes group mention-prefixed slash commands before command-auth probing", async () => {
     mockShouldComputeCommandAuthorized.mockReturnValue(true);
 
