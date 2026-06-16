@@ -229,7 +229,9 @@ export function parseMergeForwardContent(params: {
 
 export function checkBotMentioned(event: FeishuMessageLike, botOpenId?: string): boolean {
   if (!botOpenId) {
-    return false;
+    // The startup bot-info probe can fail under load. While identity recovery
+    // runs, fail open so real @mentions are not silently dropped.
+    return true;
   }
   if ((event.message.content ?? "").includes("@_all")) {
     return true;
