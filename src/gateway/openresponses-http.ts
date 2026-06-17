@@ -64,6 +64,7 @@ type OpenResponsesHttpOptions = {
 
 const DEFAULT_BODY_BYTES = 20 * 1024 * 1024;
 const DEFAULT_MAX_URL_PARTS = 8;
+const DEFAULT_RESPONSE_TEXT = "No response from OpenClaw.";
 
 // In-memory map from responseId -> sessionKey for previous_response_id continuity.
 // Entries are evicted after 30 minutes to bound memory usage.
@@ -793,6 +794,35 @@ export async function handleOpenResponsesHttpRequest(
   let finalUsage: Usage | undefined;
   let finalizeRequested: { status: ResponseResource["status"]; text: string } | null = null;
 
+  const resolvePayloadText = (payloads: Array<{ text?: string }> | undefined): string =>
+    Array.isArray(payloads) && payloads.length > 0
+      ? payloads
+          .map((p) => (typeof p.text === "string" ? p.text : ""))
+          .filter(Boolean)
+          .join("\n\n") || DEFAULT_RESPONSE_TEXT
+      : DEFAULT_RESPONSE_TEXT;
+
+  const emitFallbackDeltaIfNeeded = (payloads: Array<{ text?: string }> | undefined) => {
+    if (closed || sawAssistantDelta) {
+      return;
+    }
+    const content = resolvePayloadText(payloads);
+    accumulatedText = content;
+    sawAssistantDelta = true;
+
+    writeSseEvent(res, {
+      type: "response.output_text.delta",
+      item_id: outputItemId,
+      output_index: 0,
+      content_index: 0,
+      delta: content,
+    });
+
+    if (finalizeRequested?.text === DEFAULT_RESPONSE_TEXT) {
+      finalizeRequested = { ...finalizeRequested, text: content };
+    }
+  };
+
   const maybeFinalize = () => {
     if (closed) {
       return;
@@ -921,7 +951,7 @@ export async function handleOpenResponsesHttpRequest(
     if (evt.stream === "lifecycle") {
       const phase = evt.data?.phase;
       if (phase === "end" || phase === "error") {
-        const finalText = accumulatedText || "No response from OpenClaw.";
+        const finalText = accumulatedText || DEFAULT_RESPONSE_TEXT;
         const finalStatus = phase === "error" ? "failed" : "completed";
         requestFinalize(finalStatus, finalText);
       }
@@ -1040,34 +1070,10 @@ export async function handleOpenResponsesHttpRequest(
         return;
       }
 
+      // Fallback before finalization: lifecycle:end can arrive before
+      // agentCommandFromIngress resolves with non-streamed payload text.
+      emitFallbackDeltaIfNeeded(resultAny.payloads);
       maybeFinalize();
-
-      if (closed) {
-        return;
-      }
-
-      // Fallback: if no streaming deltas were received, send the full response as text
-      if (!sawAssistantDelta) {
-        const payloads = resultAny.payloads;
-        const content =
-          Array.isArray(payloads) && payloads.length > 0
-            ? payloads
-                .map((p) => (typeof p.text === "string" ? p.text : ""))
-                .filter(Boolean)
-                .join("\n\n")
-            : "No response from OpenClaw.";
-
-        accumulatedText = content;
-        sawAssistantDelta = true;
-
-        writeSseEvent(res, {
-          type: "response.output_text.delta",
-          item_id: outputItemId,
-          output_index: 0,
-          content_index: 0,
-          delta: content,
-        });
-      }
     } catch (err) {
       logWarn(`openresponses: streaming response failed: ${String(err)}`);
       if (closed) {
