@@ -636,22 +636,18 @@ describe("OpenResponses HTTP API (e2e)", () => {
       expect(fallbackText).toContain("hello");
 
       agentCommand.mockClear();
-      let releaseEarlyEnd:
-        | ((value: { payloads: Array<{ text: string }> }) => void)
-        | undefined;
-      agentCommand.mockImplementationOnce(
-        (async (opts: unknown) => {
-          const runId = (opts as { runId?: string }).runId ?? "";
-          emitAgentEvent({
-            runId,
-            stream: "lifecycle",
-            data: { phase: "end" },
-          });
-          return await new Promise<{ payloads: Array<{ text: string }> }>((resolve) => {
-            releaseEarlyEnd = resolve;
-          });
-        }) as never,
-      );
+      let releaseEarlyEnd: ((value: { payloads: Array<{ text: string }> }) => void) | undefined;
+      agentCommand.mockImplementationOnce((async (opts: unknown) => {
+        const runId = (opts as { runId?: string }).runId ?? "";
+        emitAgentEvent({
+          runId,
+          stream: "lifecycle",
+          data: { phase: "end" },
+        });
+        return await new Promise<{ payloads: Array<{ text: string }> }>((resolve) => {
+          releaseEarlyEnd = resolve;
+        });
+      }) as never);
 
       const resEarlyEnd = await postResponses(port, {
         stream: true,
