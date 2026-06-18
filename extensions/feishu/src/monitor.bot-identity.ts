@@ -78,7 +78,7 @@ export function startBotIdentityRecovery(params: {
     `feishu[${accountId}]: bot open_id unknown; starting background retry (delays: ${BOT_IDENTITY_RETRY_DELAYS_MS.map((delay) => `${delay / 1000}s`).join(", ")})`,
   );
   log(
-    `feishu[${accountId}]: requireMention group messages stay gated until bot identity recovery succeeds`,
+    `feishu[${accountId}]: mention-bearing requireMention group messages will be treated as mentioned until bot identity recovery succeeds`,
   );
 
   void retryBotIdentityProbe(account, accountId, runtime, abortSignal);
