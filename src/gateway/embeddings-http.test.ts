@@ -134,6 +134,26 @@ describe("OpenAI-compatible embeddings HTTP API (e2e)", () => {
     expect(json.error?.type).toBe("invalid_request_error");
   });
 
+  it("rejects truncated provider embedding batches", async () => {
+    createEmbeddingProviderMock.mockResolvedValueOnce({
+      provider: {
+        id: "openai",
+        model: "text-embedding-3-small",
+        embedQuery: async () => [0.1, 0.2],
+        embedBatch: async () => [[0.1, 0.2]],
+      },
+    });
+
+    const res = await postEmbeddings({
+      model: "text-embedding-3-small",
+      input: ["one", "two"],
+    });
+    expect(res.status).toBe(500);
+    const json = (await res.json()) as { data?: unknown; error?: { type?: string } };
+    expect(json.data).toBeUndefined();
+    expect(json.error?.type).toBe("api_error");
+  });
+
   it("rejects disallowed provider-prefixed model overrides", async () => {
     const res = await postEmbeddings({
       model: "ollama/nomic-embed-text",
