@@ -82,6 +82,23 @@ function validateInputTexts(texts: string[]): string | undefined {
   return undefined;
 }
 
+function validateProviderEmbeddings(embeddings: number[][], expectedCount: number): void {
+  if (embeddings.length !== expectedCount) {
+    throw new Error(
+      `Embeddings provider returned ${embeddings.length} vectors for ${expectedCount} inputs.`,
+    );
+  }
+  const invalidIndex = embeddings.findIndex(
+    (embedding) =>
+      !Array.isArray(embedding) ||
+      embedding.length === 0 ||
+      embedding.some((value) => !Number.isFinite(value)),
+  );
+  if (invalidIndex !== -1) {
+    throw new Error(`Embeddings provider returned an invalid vector at index ${invalidIndex}.`);
+  }
+}
+
 function resolveEmbeddingsTarget(params: {
   requestModel: string;
   configuredProvider: EmbeddingProviderRequest;
@@ -220,6 +237,7 @@ export async function handleOpenAiEmbeddingsHttpRequest(
     }
 
     const embeddings = await result.provider.embedBatch(texts);
+    validateProviderEmbeddings(embeddings, texts.length);
     const encodingFormat = payload.encoding_format === "base64" ? "base64" : "float";
 
     sendJson(res, 200, {

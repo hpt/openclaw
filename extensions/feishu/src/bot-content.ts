@@ -228,13 +228,21 @@ export function parseMergeForwardContent(params: {
 }
 
 export function checkBotMentioned(event: FeishuMessageLike, botOpenId?: string): boolean {
-  if (!botOpenId) {
-    return false;
-  }
   if ((event.message.content ?? "").includes("@_all")) {
     return true;
   }
   const mentions = event.message.mentions ?? [];
+  if (!botOpenId) {
+    // Startup bot-info probes can time out. While recovery runs, treat
+    // mention-bearing messages as addressed so real @mentions are not lost.
+    if (mentions.length > 0) {
+      return true;
+    }
+    if (event.message.message_type === "post") {
+      return parsePostContent(event.message.content).mentionedOpenIds.length > 0;
+    }
+    return false;
+  }
   if (mentions.length > 0) {
     return mentions.some((mention) => mention.id.open_id === botOpenId);
   }
