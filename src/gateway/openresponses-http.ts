@@ -72,6 +72,7 @@ const MAX_RESPONSE_SESSION_ENTRIES = 500;
 type ResponseSessionScope = {
   authSubject: string;
   agentId: string;
+  user?: string;
   requestedSessionKey?: string;
 };
 
@@ -84,10 +85,12 @@ const responseSessionMap = new Map<string, ResponseSessionEntry>();
 
 function normalizeResponseSessionScope(scope: ResponseSessionScope): ResponseSessionScope {
   const authSubject = scope.authSubject.trim();
+  const user = scope.user?.trim();
   const requestedSessionKey = scope.requestedSessionKey?.trim();
   return {
     authSubject,
     agentId: scope.agentId,
+    user: user || undefined,
     requestedSessionKey: requestedSessionKey || undefined,
   };
 }
@@ -113,10 +116,12 @@ function createResponseSessionScope(params: {
   req: IncomingMessage;
   auth: ResolvedGatewayAuth;
   agentId: string;
+  user?: string;
 }): ResponseSessionScope {
   return normalizeResponseSessionScope({
     authSubject: resolveResponseSessionAuthSubject({ req: params.req, auth: params.auth }),
     agentId: params.agentId,
+    user: params.user,
     requestedSessionKey: getHeader(params.req, "x-openclaw-session-key"),
   });
 }
@@ -128,6 +133,7 @@ function matchesResponseSessionScope(
   return (
     entry.authSubject === scope.authSubject &&
     entry.agentId === scope.agentId &&
+    entry.user === scope.user &&
     entry.requestedSessionKey === scope.requestedSessionKey
   );
 }
@@ -635,9 +641,10 @@ export async function handleOpenResponsesHttpRequest(
     req,
     auth: opts.auth,
     agentId: resolved.agentId,
+    user,
   });
   // Resolve session key: reuse previous_response_id only when it matches the
-  // same auth-subject/agent/requested-session scope as the current request.
+  // same auth-subject/agent/user/requested-session scope as the current request.
   const previousSessionKey = lookupResponseSession(
     payload.previous_response_id,
     responseSessionScope,
