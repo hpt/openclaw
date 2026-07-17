@@ -17,12 +17,12 @@ let openResponsesTesting: {
     responseId: string,
     sessionKey: string,
     now: number,
-    scope?: { authSubject: string; agentId: string; requestedSessionKey?: string },
+    scope?: { authSubject: string; agentId: string; user?: string; requestedSessionKey?: string },
   ): void;
   lookupResponseSessionAt(
     responseId: string | undefined,
     now: number,
-    scope?: { authSubject: string; agentId: string; requestedSessionKey?: string },
+    scope?: { authSubject: string; agentId: string; user?: string; requestedSessionKey?: string },
   ): string | undefined;
   getResponseSessionIds(): string[];
 };
@@ -800,7 +800,7 @@ describe("OpenResponses HTTP API (e2e)", () => {
     await ensureResponseConsumed(secondResponse);
   });
 
-  it("reuses prior sessions across different user values when auth scope matches", async () => {
+  it("does not reuse prior sessions across different user scopes", async () => {
     const port = enabledPort;
     agentCommand.mockClear();
     agentCommand.mockResolvedValueOnce({
@@ -835,7 +835,8 @@ describe("OpenResponses HTTP API (e2e)", () => {
     const secondOpts = (agentCommand.mock.calls[1] as unknown[] | undefined)?.[0] as
       | { sessionKey?: string }
       | undefined;
-    expect(secondOpts?.sessionKey).toBe(firstOpts?.sessionKey);
+    expect(secondOpts?.sessionKey).not.toBe(firstOpts?.sessionKey);
+    expect(secondOpts?.sessionKey ?? "").toContain("openresponses-user:bob");
     await ensureResponseConsumed(secondResponse);
   });
 
@@ -902,6 +903,29 @@ describe("OpenResponses HTTP API (e2e)", () => {
       openResponsesTesting.lookupResponseSessionAt("resp_1", 101, {
         authSubject: "subject:b",
         agentId: "main",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("does not reuse cached sessions when the user scope changes", () => {
+    openResponsesTesting.storeResponseSessionAt("resp_1", "session_1", 100, {
+      authSubject: "subject:a",
+      agentId: "main",
+      user: "alice",
+    });
+
+    expect(
+      openResponsesTesting.lookupResponseSessionAt("resp_1", 101, {
+        authSubject: "subject:a",
+        agentId: "main",
+        user: "alice",
+      }),
+    ).toBe("session_1");
+    expect(
+      openResponsesTesting.lookupResponseSessionAt("resp_1", 101, {
+        authSubject: "subject:a",
+        agentId: "main",
+        user: "bob",
       }),
     ).toBeUndefined();
   });
