@@ -388,11 +388,6 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
     return { shouldContinue: false, reply: { text: lines.join("\n") } };
   }
 
-  const nonOwner = rejectNonOwnerCommand(params, "/allowlist");
-  if (nonOwner) {
-    return nonOwner;
-  }
-
   const missingAdminScope = requireGatewayClientScopeForInternalChannel(params, {
     label: "/allowlist write",
     allowedScopes: ["operator.admin"],
@@ -400,6 +395,11 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
   });
   if (missingAdminScope) {
     return missingAdminScope;
+  }
+
+  const nonOwner = rejectNonOwnerCommand(params, "/allowlist");
+  if (nonOwner) {
+    return nonOwner;
   }
 
   const disabled = requireCommandFlagEnabled(params.cfg, {
