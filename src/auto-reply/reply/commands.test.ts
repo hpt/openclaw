@@ -1758,6 +1758,32 @@ describe("handleCommands plugin commands", () => {
     expect(commandResult.reply?.text).toBe("from plugin");
     clearPluginCommands();
   });
+
+  it("forwards senderIsOwner into plugin command context", async () => {
+    clearPluginCommands();
+    let sawOwner: boolean | undefined;
+    const result = registerPluginCommand("test-plugin", {
+      name: "ownerprobe",
+      description: "Probe owner flag",
+      handler: async (ctx) => {
+        sawOwner = ctx.senderIsOwner;
+        return { text: `owner=${String(ctx.senderIsOwner)}` };
+      },
+    });
+    expect(result.ok).toBe(true);
+
+    const params = buildParams("/ownerprobe", {
+      commands: { text: true },
+      channels: { whatsapp: { allowFrom: ["*"] } },
+    } as OpenClawConfig);
+    params.command.senderIsOwner = false;
+    const commandResult = await handleCommands(params);
+
+    expect(commandResult.shouldContinue).toBe(false);
+    expect(commandResult.reply?.text).toBe("owner=false");
+    expect(sawOwner).toBe(false);
+    clearPluginCommands();
+  });
 });
 
 describe("handleCommands identity", () => {

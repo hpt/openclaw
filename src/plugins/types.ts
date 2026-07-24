@@ -972,6 +972,8 @@ export type PluginCommandContext = {
   channelId?: ChannelId;
   /** Whether the sender is on the allowlist */
   isAuthorizedSender: boolean;
+  /** Whether the sender is an owner (trusted for privileged mutations) */
+  senderIsOwner?: boolean;
   /** Gateway client scopes for internal control-plane callers */
   gatewayClientScopes?: string[];
   /** Raw command arguments after the command name */

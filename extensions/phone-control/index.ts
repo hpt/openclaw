@@ -4,6 +4,7 @@ import {
   definePluginEntry,
   type OpenClawPluginApi,
   type OpenClawPluginService,
+  type PluginCommandContext,
 } from "./runtime-api.js";
 
 type ArmGroup = "camera" | "screen" | "writes" | "all";
@@ -287,6 +288,28 @@ function formatStatus(state: ArmStateFile | null): string {
   return `Phone control: armed (${until}).\nTemporarily allowed: ${cmdLabel}`;
 }
 
+function rejectPhoneControlMutation(
+  ctx: PluginCommandContext,
+  action: "arm" | "disarm",
+): { text: string } | null {
+  // Internal gateway clients need operator.admin for persistent node-command mutations.
+  if (ctx.channel === "webchat") {
+    if (!ctx.gatewayClientScopes?.includes("operator.admin")) {
+      return {
+        text: `⚠️ /phone ${action} requires operator.admin for internal gateway callers.`,
+      };
+    }
+    return null;
+  }
+  // External messaging callers must be owners — command allowlists alone are not enough.
+  if (!ctx.senderIsOwner) {
+    return {
+      text: `⚠️ /phone ${action} requires owner access.`,
+    };
+  }
+  return null;
+}
+
 export default definePluginEntry({
   id: "phone-control",
   name: "Phone Control",
@@ -358,10 +381,9 @@ export default definePluginEntry({
         }
 
         if (action === "disarm") {
-          if (ctx.channel === "webchat" && !ctx.gatewayClientScopes?.includes("operator.admin")) {
-            return {
-              text: "⚠️ /phone disarm requires operator.admin for internal gateway callers.",
-            };
+          const denied = rejectPhoneControlMutation(ctx, "disarm");
+          if (denied) {
+            return denied;
           }
           const res = await disarmNow({
             api,
@@ -380,10 +402,9 @@ export default definePluginEntry({
         }
 
         if (action === "arm") {
-          if (ctx.channel === "webchat" && !ctx.gatewayClientScopes?.includes("operator.admin")) {
-            return {
-              text: "⚠️ /phone arm requires operator.admin for internal gateway callers.",
-            };
+          const denied = rejectPhoneControlMutation(ctx, "arm");
+          if (denied) {
+            return denied;
           }
           const group = parseGroup(tokens[1]);
           if (!group) {
