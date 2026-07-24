@@ -42,6 +42,7 @@ function createCommandContext(args: string): PluginCommandContext {
   return {
     channel: "test",
     isAuthorizedSender: true,
+    senderIsOwner: true,
     commandBody: `/phone ${args}`,
     args,
     config: {},
@@ -135,6 +136,35 @@ describe("phone-control plugin", () => {
       });
 
       expect(String(res?.text ?? "")).toContain("requires operator.admin");
+      expect(writeConfigFile).not.toHaveBeenCalled();
+    });
+  });
+
+  it("blocks authorized non-owner external callers from arming phone control", async () => {
+    await withRegisteredPhoneControl(async ({ command, writeConfigFile }) => {
+      const res = await command.handler({
+        ...createCommandContext("arm writes 30s"),
+        channel: "telegram",
+        senderIsOwner: false,
+      });
+
+      expect(String(res?.text ?? "")).toContain("requires owner access");
+      expect(writeConfigFile).not.toHaveBeenCalled();
+    });
+  });
+
+  it("blocks authorized non-owner external callers from disarming phone control", async () => {
+    await withRegisteredPhoneControl(async ({ command, writeConfigFile }) => {
+      await command.handler(createCommandContext("arm writes 30s"));
+      writeConfigFile.mockClear();
+
+      const res = await command.handler({
+        ...createCommandContext("disarm"),
+        channel: "telegram",
+        senderIsOwner: false,
+      });
+
+      expect(String(res?.text ?? "")).toContain("requires owner access");
       expect(writeConfigFile).not.toHaveBeenCalled();
     });
   });
