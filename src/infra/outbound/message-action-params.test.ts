@@ -210,6 +210,63 @@ describe("message action media helpers", () => {
     }
   });
 
+  maybeIt("normalizes Matrix avatarPath aliases under sandbox media params", async () => {
+    const sandboxRoot = await fs.mkdtemp(path.join(os.tmpdir(), "msg-params-avatar-"));
+    try {
+      const args: Record<string, unknown> = {
+        avatarPath: " file:///workspace/avatars/profile.png ",
+        avatar_path: "/workspace/avatars/alt.png",
+      };
+
+      await normalizeSandboxMediaParams({
+        args,
+        mediaPolicy: {
+          mode: "sandbox",
+          sandboxRoot: ` ${sandboxRoot} `,
+        },
+      });
+
+      expect(args).toMatchObject({
+        avatarPath: path.join(sandboxRoot, "avatars", "profile.png"),
+        avatar_path: path.join(sandboxRoot, "avatars", "alt.png"),
+      });
+    } finally {
+      await fs.rm(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
+  maybeIt("rejects host-absolute Matrix avatarPath outside the sandbox root", async () => {
+    const sandboxRoot = await fs.mkdtemp(path.join(os.tmpdir(), "msg-params-avatar-host-"));
+    const hostWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "msg-params-avatar-outside-"));
+    try {
+      const hostSecret = path.join(hostWorkspace, "secret.png");
+      await fs.writeFile(hostSecret, "SECRET", "utf8");
+
+      await expect(
+        normalizeSandboxMediaParams({
+          args: { avatarPath: hostSecret },
+          mediaPolicy: {
+            mode: "sandbox",
+            sandboxRoot,
+          },
+        }),
+      ).rejects.toThrow(/sandbox/i);
+
+      await expect(
+        normalizeSandboxMediaParams({
+          args: { avatar_path: hostSecret },
+          mediaPolicy: {
+            mode: "sandbox",
+            sandboxRoot,
+          },
+        }),
+      ).rejects.toThrow(/sandbox/i);
+    } finally {
+      await fs.rm(sandboxRoot, { recursive: true, force: true });
+      await fs.rm(hostWorkspace, { recursive: true, force: true });
+    }
+  });
+
   maybeIt(
     "keeps remote HTTP mediaUrl and fileUrl aliases unchanged under sandbox normalization",
     async () => {

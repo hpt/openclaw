@@ -10,7 +10,17 @@ import { readBooleanParam as readBooleanParamShared } from "../../plugin-sdk/boo
 
 export const readBooleanParam = readBooleanParamShared;
 
-const SANDBOX_MEDIA_PARAM_KEYS = ["media", "path", "filePath", "mediaUrl", "fileUrl"] as const;
+// Include Matrix set-profile aliases; omitting them lets sandboxed agents read
+// host workspace files via mediaLocalRoots after skipping path remapping.
+const SANDBOX_MEDIA_PARAM_KEYS = [
+  "media",
+  "path",
+  "filePath",
+  "mediaUrl",
+  "fileUrl",
+  "avatarPath",
+  "avatar_path",
+] as const;
 
 function readMediaParam(
   args: Record<string, unknown>,
