@@ -122,6 +122,7 @@ function createCommandContext(params?: Partial<PluginCommandContext>): PluginCom
   return {
     channel: "webchat",
     isAuthorizedSender: true,
+    senderIsOwner: true,
     commandBody: "/pair qr",
     args: "qr",
     config: {},
@@ -415,6 +416,90 @@ describe("device-pair /pair approve", () => {
     expect(result).toEqual({
       text: "⚠️ This command requires operator.pairing for internal gateway callers.",
     });
+  });
+
+  it("blocks authorized non-owner external callers from approving pairing", async () => {
+    vi.mocked(listDevicePairing).mockResolvedValueOnce({
+      pending: [
+        {
+          requestId: "req-1",
+          deviceId: "victim-phone",
+          publicKey: "victim-public-key",
+          displayName: "Victim Phone",
+          platform: "ios",
+          ts: Date.now(),
+        },
+      ],
+      paired: [],
+    });
+
+    const command = registerPairCommand();
+    const result = await command.handler(
+      createCommandContext({
+        channel: "telegram",
+        args: "approve latest",
+        commandBody: "/pair approve latest",
+        senderIsOwner: false,
+      }),
+    );
+
+    expect(vi.mocked(approveDevicePairing)).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      text: "⚠️ /pair approve requires owner access.",
+    });
+  });
+
+  it("allows owner external callers to approve pairing", async () => {
+    vi.mocked(listDevicePairing).mockResolvedValueOnce({
+      pending: [
+        {
+          requestId: "req-1",
+          deviceId: "victim-phone",
+          publicKey: "victim-public-key",
+          displayName: "Victim Phone",
+          platform: "ios",
+          ts: Date.now(),
+        },
+      ],
+      paired: [],
+    });
+    vi.mocked(approveDevicePairing).mockResolvedValueOnce({
+      status: "approved",
+      requestId: "req-1",
+      device: {
+        deviceId: "victim-phone",
+        publicKey: "victim-public-key",
+        displayName: "Victim Phone",
+        platform: "ios",
+        role: "operator",
+        roles: ["operator"],
+        scopes: ["operator.pairing"],
+        approvedScopes: ["operator.pairing"],
+        tokens: {
+          operator: {
+            token: "token-1",
+            role: "operator",
+            scopes: ["operator.pairing"],
+            createdAtMs: Date.now(),
+          },
+        },
+        createdAtMs: Date.now(),
+        approvedAtMs: Date.now(),
+      },
+    });
+
+    const command = registerPairCommand();
+    const result = await command.handler(
+      createCommandContext({
+        channel: "telegram",
+        args: "approve latest",
+        commandBody: "/pair approve latest",
+        senderIsOwner: true,
+      }),
+    );
+
+    expect(vi.mocked(approveDevicePairing)).toHaveBeenCalledWith("req-1");
+    expect(result).toEqual({ text: "✅ Paired Victim Phone (ios)." });
   });
 
   it("allows internal gateway callers with operator.pairing", async () => {
