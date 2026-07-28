@@ -184,6 +184,7 @@ export async function executePluginCommand(params: {
   channel: string;
   channelId?: PluginCommandContext["channelId"];
   isAuthorizedSender: boolean;
+  senderIsOwner?: boolean;
   gatewayClientScopes?: PluginCommandContext["gatewayClientScopes"];
   commandBody: string;
   config: OpenClawConfig;
@@ -218,6 +219,7 @@ export async function executePluginCommand(params: {
     channel,
     channelId: params.channelId,
     isAuthorizedSender,
+    senderIsOwner: params.senderIsOwner,
     gatewayClientScopes: params.gatewayClientScopes,
     args: sanitizedArgs,
     commandBody,

@@ -574,13 +574,20 @@ export default definePluginEntry({
         }
 
         if (action === "approve") {
-          if (
-            gatewayClientScopes &&
-            !gatewayClientScopes.includes("operator.pairing") &&
-            !gatewayClientScopes.includes("operator.admin")
-          ) {
+          if (gatewayClientScopes) {
+            if (
+              !gatewayClientScopes.includes("operator.pairing") &&
+              !gatewayClientScopes.includes("operator.admin")
+            ) {
+              return {
+                text: "⚠️ This command requires operator.pairing for internal gateway callers.",
+              };
+            }
+          } else if (!ctx.senderIsOwner) {
+            // External messaging callers must be owners — command allowlists alone are not enough
+            // to mint paired-device credentials.
             return {
-              text: "⚠️ This command requires operator.pairing for internal gateway callers.",
+              text: "⚠️ /pair approve requires owner access.",
             };
           }
           const requested = tokens[1]?.trim();
