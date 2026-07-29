@@ -4,7 +4,12 @@ import { isAbsolute } from "node:path";
 import { basename } from "node:path";
 import type * as Lark from "@larksuiteoapi/node-sdk";
 import { Type } from "@sinclair/typebox";
-import type { OpenClawPluginApi } from "../runtime-api.js";
+import {
+  assertLocalMediaAllowed,
+  getAgentScopedMediaLocalRoots,
+  getDefaultMediaLocalRoots,
+} from "openclaw/plugin-sdk/media-runtime";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "../runtime-api.js";
 import { listEnabledFeishuAccounts } from "./accounts.js";
 import { FeishuDocSchema, type FeishuDocParams } from "./doc-schema.js";
 import { BATCH_SIZE, insertBlocksInBatches } from "./docx-batch-insert.js";
@@ -30,6 +35,50 @@ function json(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
     details: data,
+  };
+}
+
+function expandHomePath(filePath: string): string {
+  return filePath.startsWith("~") ? filePath.replace(/^~/, homedir()) : filePath;
+}
+
+/** Resolve allowed local roots for feishu_doc uploads (post CVE-2026-26321). */
+export function resolveDocToolLocalRoots(
+  ctx: Pick<OpenClawPluginToolContext, "config" | "workspaceDir" | "agentId" | "sandboxed">,
+): readonly string[] {
+  const workspaceDir = ctx.workspaceDir?.trim();
+  if (ctx.sandboxed) {
+    // Fail closed: sandboxed agents may only read their effective workspace.
+    return workspaceDir ? [workspaceDir] : [];
+  }
+  if (ctx.config) {
+    return getAgentScopedMediaLocalRoots(ctx.config, ctx.agentId);
+  }
+  if (workspaceDir) {
+    const roots = [...getDefaultMediaLocalRoots()];
+    if (!roots.includes(workspaceDir)) {
+      roots.push(workspaceDir);
+    }
+    return roots;
+  }
+  return getDefaultMediaLocalRoots();
+}
+
+async function readAllowedLocalUploadFile(params: {
+  filePath: string;
+  maxBytes: number;
+  localRoots: readonly string[];
+  explicitFileName?: string;
+}): Promise<{ buffer: Buffer; fileName: string }> {
+  const candidate = expandHomePath(params.filePath);
+  await assertLocalMediaAllowed(candidate, params.localRoots);
+  const buffer = await fs.readFile(candidate);
+  if (buffer.length > params.maxBytes) {
+    throw new Error(`Local file exceeds limit: ${buffer.length} bytes > ${params.maxBytes} bytes`);
+  }
+  return {
+    buffer,
+    fileName: params.explicitFileName ?? basename(candidate),
   };
 }
 
@@ -474,6 +523,7 @@ async function resolveUploadInput(
   maxBytes: number,
   explicitFileName?: string,
   imageInput?: string, // data URI, plain base64, or local path
+  localRoots: readonly string[] = getDefaultMediaLocalRoots(),
 ): Promise<{ buffer: Buffer; fileName: string }> {
   // Enforce mutual exclusivity: exactly one input source must be provided.
   const inputSources = (
@@ -530,17 +580,18 @@ async function resolveUploadInput(
   // Note: JPEG base64 starts with "/9j/" — pass as data:image/jpeg;base64,...
   // to avoid ambiguity with absolute paths.
   if (imageInput) {
-    const candidate = imageInput.startsWith("~") ? imageInput.replace(/^~/, homedir()) : imageInput;
+    const candidate = expandHomePath(imageInput);
     const unambiguousPath =
       imageInput.startsWith("~") || imageInput.startsWith("./") || imageInput.startsWith("../");
     const absolutePath = isAbsolute(imageInput);
 
     if (unambiguousPath || (absolutePath && existsSync(candidate))) {
-      const buffer = await fs.readFile(candidate);
-      if (buffer.length > maxBytes) {
-        throw new Error(`Local file exceeds limit: ${buffer.length} bytes > ${maxBytes} bytes`);
-      }
-      return { buffer, fileName: explicitFileName ?? basename(candidate) };
+      return await readAllowedLocalUploadFile({
+        filePath: candidate,
+        maxBytes,
+        localRoots,
+        explicitFileName,
+      });
     }
 
     if (absolutePath && !existsSync(candidate)) {
@@ -594,14 +645,12 @@ async function resolveUploadInput(
     };
   }
 
-  const buffer = await fs.readFile(filePath!);
-  if (buffer.length > maxBytes) {
-    throw new Error(`Local file exceeds limit: ${buffer.length} bytes > ${maxBytes} bytes`);
-  }
-  return {
-    buffer,
-    fileName: explicitFileName || basename(filePath!),
-  };
+  return await readAllowedLocalUploadFile({
+    filePath: filePath!,
+    maxBytes,
+    localRoots,
+    explicitFileName,
+  });
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- SDK block types */
@@ -657,6 +706,7 @@ async function uploadImageBlock(
   filename?: string,
   index?: number,
   imageInput?: string, // data URI, plain base64, or local path
+  localRoots: readonly string[] = getDefaultMediaLocalRoots(),
 ) {
   // Step 1: Create an empty image block (block_type 27).
   // Per Feishu FAQ: image token cannot be set at block creation time.
@@ -676,7 +726,14 @@ async function uploadImageBlock(
   }
 
   // Step 2: Resolve and upload the image buffer.
-  const upload = await resolveUploadInput(url, filePath, maxBytes, filename, imageInput);
+  const upload = await resolveUploadInput(
+    url,
+    filePath,
+    maxBytes,
+    filename,
+    imageInput,
+    localRoots,
+  );
   const fileToken = await uploadImageToDocx(
     client,
     imageBlockId,
@@ -711,13 +768,14 @@ async function uploadFileBlock(
   filePath?: string,
   parentBlockId?: string,
   filename?: string,
+  localRoots: readonly string[] = getDefaultMediaLocalRoots(),
 ) {
   const blockId = parentBlockId ?? docToken;
 
   // Feishu API does not allow creating empty file blocks (block_type 23).
   // Workaround: create a placeholder text block, then replace it with file content.
   // Actually, file blocks need a different approach: use markdown link as placeholder.
-  const upload = await resolveUploadInput(url, filePath, maxBytes, filename);
+  const upload = await resolveUploadInput(url, filePath, maxBytes, filename, undefined, localRoots);
 
   // Create a placeholder text block first
   const placeholderMd = `[${upload.fileName}](https://example.com/placeholder)`;
@@ -1348,6 +1406,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
         const defaultAccountId = ctx.agentAccountId;
         const trustedRequesterOpenId =
           ctx.messageChannel === "feishu" ? ctx.requesterSenderId?.trim() || undefined : undefined;
+        const localRoots = resolveDocToolLocalRoots(ctx);
         return {
           name: "feishu_doc",
           label: "Feishu Doc",
@@ -1446,6 +1505,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                       p.filename,
                       p.index,
                       p.image, // data URI or plain base64
+                      localRoots,
                     ),
                   );
                 case "upload_file":
@@ -1458,6 +1518,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
                       p.file_path,
                       p.parent_block_id,
                       p.filename,
+                      localRoots,
                     ),
                   );
                 case "color_text":

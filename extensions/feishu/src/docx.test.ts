@@ -424,33 +424,36 @@ describe("feishu_doc image fetch hardening", () => {
       },
     });
 
-    const localPath = join(tmpdir(), `feishu-docx-upload-${Date.now()}.txt`);
+    const workspaceDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-workspace-"));
+    const localPath = join(workspaceDir, `feishu-docx-upload-${Date.now()}.txt`);
     await fs.writeFile(localPath, "hello from local file", "utf8");
 
-    const feishuDocTool = resolveFeishuDocTool();
+    try {
+      const feishuDocTool = resolveFeishuDocTool({ workspaceDir });
 
-    const result = await feishuDocTool.execute("tool-call", {
-      action: "upload_file",
-      doc_token: "doc_1",
-      file_path: localPath,
-      filename: "test-local.txt",
-    });
+      const result = await feishuDocTool.execute("tool-call", {
+        action: "upload_file",
+        doc_token: "doc_1",
+        file_path: localPath,
+        filename: "test-local.txt",
+      });
 
-    expect(result.details.success).toBe(true);
-    expect(result.details.file_token).toBe("token_1");
-    expect(result.details.file_name).toBe("test-local.txt");
+      expect(result.details.success).toBe(true);
+      expect(result.details.file_token).toBe("token_1");
+      expect(result.details.file_name).toBe("test-local.txt");
 
-    expect(driveUploadAllMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          parent_type: "docx_file",
-          parent_node: "doc_1",
-          file_name: "test-local.txt",
+      expect(driveUploadAllMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            parent_type: "docx_file",
+            parent_node: "doc_1",
+            file_name: "test-local.txt",
+          }),
         }),
-      }),
-    );
-
-    await fs.unlink(localPath);
+      );
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 
   it("returns an error when upload_file cannot list placeholder siblings", async () => {
@@ -466,11 +469,12 @@ describe("feishu_doc image fetch hardening", () => {
       data: { items: [] },
     });
 
-    const localPath = join(tmpdir(), `feishu-docx-upload-fail-${Date.now()}.txt`);
+    const workspaceDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-workspace-fail-"));
+    const localPath = join(workspaceDir, `feishu-docx-upload-fail-${Date.now()}.txt`);
     await fs.writeFile(localPath, "hello from local file", "utf8");
 
     try {
-      const feishuDocTool = resolveFeishuDocTool();
+      const feishuDocTool = resolveFeishuDocTool({ workspaceDir });
 
       const result = await feishuDocTool.execute("tool-call", {
         action: "upload_file",
@@ -482,7 +486,83 @@ describe("feishu_doc image fetch hardening", () => {
       expect(result.details.error).toBe("list failed");
       expect(driveUploadAllMock).not.toHaveBeenCalled();
     } finally {
-      await fs.unlink(localPath);
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects host-absolute upload_file paths outside sandbox workspace roots", async () => {
+    const sandboxDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-sandbox-"));
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-outside-"));
+    const outsidePath = join(outsideDir, "secret.txt");
+    await fs.writeFile(outsidePath, "host secret", "utf8");
+
+    try {
+      const feishuDocTool = resolveFeishuDocTool({
+        workspaceDir: sandboxDir,
+        sandboxed: true,
+      });
+
+      const result = await feishuDocTool.execute("tool-call", {
+        action: "upload_file",
+        doc_token: "doc_1",
+        file_path: outsidePath,
+        filename: "secret.txt",
+      });
+
+      expect(result.details.error).toMatch(/not under an allowed directory/i);
+      expect(driveUploadAllMock).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(sandboxDir, { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects host-absolute upload_image paths outside sandbox workspace roots", async () => {
+    const sandboxDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-sandbox-img-"));
+    const outsideDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-outside-img-"));
+    const outsidePath = join(outsideDir, "secret.png");
+    await fs.writeFile(outsidePath, "fake-image", "utf8");
+
+    try {
+      const feishuDocTool = resolveFeishuDocTool({
+        workspaceDir: sandboxDir,
+        sandboxed: true,
+      });
+
+      const result = await feishuDocTool.execute("tool-call", {
+        action: "upload_image",
+        doc_token: "doc_1",
+        image: outsidePath,
+        filename: "secret.png",
+      });
+
+      expect(result.details.error).toMatch(/not under an allowed directory/i);
+      expect(driveUploadAllMock).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(sandboxDir, { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects /etc/passwd-style absolute paths for sandboxed upload_file", async () => {
+    const sandboxDir = await fs.mkdtemp(join(tmpdir(), "feishu-docx-sandbox-etc-"));
+    try {
+      const feishuDocTool = resolveFeishuDocTool({
+        workspaceDir: sandboxDir,
+        sandboxed: true,
+      });
+
+      const result = await feishuDocTool.execute("tool-call", {
+        action: "upload_file",
+        doc_token: "doc_1",
+        file_path: "/etc/passwd",
+        filename: "passwd.txt",
+      });
+
+      expect(result.details.error).toMatch(/not under an allowed directory/i);
+      expect(driveUploadAllMock).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(sandboxDir, { recursive: true, force: true });
     }
   });
 });

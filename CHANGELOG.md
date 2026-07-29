@@ -43,6 +43,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/ports: parse Docker Compose-style `OPENCLAW_GATEWAY_PORT` host publish values correctly without reviving the legacy `CLAWDBOT_GATEWAY_PORT` override. (#44083) Thanks @bebule.
 - Feishu/MSTeams message tool: keep provider-native `card` payloads optional in merged tool schemas so media-only sends stop failing validation before channel runtime dispatch. (#53715) Thanks @lndyzwdxhs.
 - Feishu/startup: keep `requireMention` enforcement strict when bot identity startup probes fail, raise the startup bot-info timeout to 30s, and add cancellable background identity recovery so mention-gated groups recover without noisy fallback. (#43788) Thanks @lefarcen.
+- Security/Feishu doc tools: gate `feishu_doc` `upload_file`/`upload_image` local path reads through allowed media roots so sandboxed agents cannot exfiltrate host files such as `/etc/passwd` or credential paths via Feishu Drive uploads.
 
 ## 2026.3.23
 
