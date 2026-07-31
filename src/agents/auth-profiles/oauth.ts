@@ -18,7 +18,7 @@ import { resolveTokenExpiryState } from "./credential-state.js";
 import { formatAuthDoctorHint } from "./doctor.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
-import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
+import { loadAuthProfileStoreForAgent, saveAuthProfileStore } from "./store.js";
 import type { AuthProfileStore, OAuthCredential } from "./types.js";
 
 function listOAuthProviderIds(): string[] {
@@ -131,7 +131,9 @@ function adoptNewerMainOAuthCredential(params: {
     return null;
   }
   try {
-    const mainStore = ensureAuthProfileStore(undefined);
+    // Read main + target stores from disk so a stale runtime snapshot cannot
+    // clobber fresher credentials that landed via CLI reauth.
+    const mainStore = loadAuthProfileStoreForAgent(undefined);
     const mainCred = mainStore.profiles[params.profileId];
     if (
       mainCred?.type === "oauth" &&
@@ -139,8 +141,10 @@ function adoptNewerMainOAuthCredential(params: {
       Number.isFinite(mainCred.expires) &&
       (!Number.isFinite(params.cred.expires) || mainCred.expires > params.cred.expires)
     ) {
+      const diskStore = loadAuthProfileStoreForAgent(params.agentDir);
+      diskStore.profiles[params.profileId] = { ...mainCred };
+      saveAuthProfileStore(diskStore, params.agentDir);
       params.store.profiles[params.profileId] = { ...mainCred };
-      saveAuthProfileStore(params.store, params.agentDir);
       log.info("adopted newer OAuth credentials from main agent", {
         profileId: params.profileId,
         agentDir: params.agentDir,
@@ -166,7 +170,9 @@ async function refreshOAuthTokenWithLock(params: {
   ensureAuthStoreFile(authPath);
 
   return await withFileLock(authPath, AUTH_STORE_LOCK_OPTIONS, async () => {
-    const store = ensureAuthProfileStore(params.agentDir);
+    // Reload from disk under the lock — never from a runtime secrets snapshot —
+    // so a live gateway cannot overwrite fresher CLI/config-auth writes.
+    const store = loadAuthProfileStoreForAgent(params.agentDir);
     const cred = store.profiles[params.profileId];
     if (!cred || cred.type !== "oauth") {
       return null;
@@ -409,7 +415,7 @@ export async function resolveApiKeyForProfile(
       email: cred.email,
     });
   } catch (error) {
-    const refreshedStore = ensureAuthProfileStore(params.agentDir);
+    const refreshedStore = loadAuthProfileStoreForAgent(params.agentDir);
     const refreshed = refreshedStore.profiles[profileId];
     if (refreshed?.type === "oauth" && Date.now() < refreshed.expires) {
       return await buildOAuthProfileResult({
@@ -443,12 +449,13 @@ export async function resolveApiKeyForProfile(
     // Fallback: if this is a secondary agent, try using the main agent's credentials
     if (params.agentDir) {
       try {
-        const mainStore = ensureAuthProfileStore(undefined); // main agent (no agentDir)
+        const mainStore = loadAuthProfileStoreForAgent(undefined);
         const mainCred = mainStore.profiles[profileId];
         if (mainCred?.type === "oauth" && Date.now() < mainCred.expires) {
           // Main agent has fresh credentials - copy them to this agent and use them
-          refreshedStore.profiles[profileId] = { ...mainCred };
-          saveAuthProfileStore(refreshedStore, params.agentDir);
+          const diskStore = loadAuthProfileStoreForAgent(params.agentDir);
+          diskStore.profiles[profileId] = { ...mainCred };
+          saveAuthProfileStore(diskStore, params.agentDir);
           log.info("inherited fresh OAuth credentials from main agent", {
             profileId,
             agentDir: params.agentDir,
