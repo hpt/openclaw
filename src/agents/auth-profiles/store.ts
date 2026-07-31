@@ -437,7 +437,14 @@ export function loadAuthProfileStore(): AuthProfileStore {
   return store;
 }
 
-function loadAuthProfileStoreForAgent(
+/**
+ * Load auth profiles from disk for an agent directory.
+ * Unlike `ensureAuthProfileStore`, this never returns a runtime secrets snapshot
+ * and never merges main-agent profiles into a secondary agent store. Locked writers
+ * must use this (or `updateAuthProfileStoreWithLock`) so fresher on-disk credentials
+ * are not overwritten by stale in-memory state.
+ */
+export function loadAuthProfileStoreForAgent(
   agentDir?: string,
   options?: LoadAuthProfileStoreOptions,
 ): AuthProfileStore {
