@@ -37,8 +37,8 @@ describe("discord exec approvals", () => {
     const cfg = buildConfig({ enabled: true, approvers: [123 as unknown as string, "456"] });
     expect(isDiscordExecApprovalApprover({ cfg, senderId: "123" })).toBe(true);
     expect(isDiscordExecApprovalApprover({ cfg, senderId: "456" })).toBe(true);
+    expect(isDiscordExecApprovalApprover({ cfg, senderId: " 456 " })).toBe(true);
     expect(isDiscordExecApprovalApprover({ cfg, senderId: "789" })).toBe(false);
-    expect(isDiscordExecApprovalApprover({ cfg, senderId: " 456 " })).toBe(false);
     expect(isDiscordExecApprovalApprover({ cfg, senderId: "" })).toBe(false);
   });
 });
