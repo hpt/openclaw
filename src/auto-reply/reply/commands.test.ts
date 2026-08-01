@@ -413,6 +413,24 @@ describe("/approve command", () => {
     );
   });
 
+  function createDiscordApproveCfg(
+    execApprovals: {
+      enabled: true;
+      approvers: string[];
+      target: "dm" | "channel" | "both";
+    } | null = { enabled: true, approvers: ["123"], target: "channel" },
+  ): OpenClawConfig {
+    return {
+      commands: { text: true },
+      channels: {
+        discord: {
+          allowFrom: ["*"],
+          ...(execApprovals ? { execApprovals } : {}),
+        },
+      },
+    } as OpenClawConfig;
+  }
+
   it("rejects unauthorized or invalid Telegram /approve variants", async () => {
     for (const testCase of [
       {
@@ -471,6 +489,64 @@ describe("/approve command", () => {
     ] as const) {
       callGatewayMock.mockReset();
       testCase.setup?.();
+      const params = buildParams(testCase.commandBody, testCase.cfg, testCase.ctx);
+
+      const result = await handleCommands(params);
+      expect(result.shouldContinue, testCase.name).toBe(false);
+      expect(result.reply?.text, testCase.name).toContain(testCase.expectedText);
+      expect(callGatewayMock, testCase.name).toHaveBeenCalledTimes(testCase.expectGatewayCalls);
+    }
+  });
+
+  it("rejects unauthorized or invalid Discord /approve variants", async () => {
+    for (const testCase of [
+      {
+        name: "discord approvals disabled",
+        cfg: createDiscordApproveCfg(null),
+        commandBody: "/approve abc12345 allow-once",
+        ctx: {
+          Provider: "discord",
+          Surface: "discord",
+          SenderId: "123",
+        },
+        expectedText: "Discord exec approvals are not enabled",
+        expectGatewayCalls: 0,
+      },
+      {
+        name: "non approver",
+        cfg: createDiscordApproveCfg({
+          enabled: true,
+          approvers: ["999"],
+          target: "channel",
+        }),
+        commandBody: "/approve abc12345 allow-always",
+        ctx: {
+          Provider: "discord",
+          Surface: "discord",
+          SenderId: "123",
+        },
+        expectedText: "not authorized to approve",
+        expectGatewayCalls: 0,
+      },
+      {
+        name: "approver allowed",
+        cfg: createDiscordApproveCfg({
+          enabled: true,
+          approvers: ["123"],
+          target: "channel",
+        }),
+        commandBody: "/approve abc12345 allow-always",
+        ctx: {
+          Provider: "discord",
+          Surface: "discord",
+          SenderId: "123",
+        },
+        expectedText: "Exec approval allow-always submitted",
+        expectGatewayCalls: 1,
+      },
+    ] as const) {
+      callGatewayMock.mockReset();
+      callGatewayMock.mockResolvedValue({ ok: true });
       const params = buildParams(testCase.commandBody, testCase.cfg, testCase.ctx);
 
       const result = await handleCommands(params);

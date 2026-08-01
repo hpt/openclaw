@@ -1,4 +1,8 @@
 import {
+  isDiscordExecApprovalApprover,
+  isDiscordExecApprovalClientEnabled,
+} from "../../../extensions/discord/api.js";
+import {
   isTelegramExecApprovalApprover,
   isTelegramExecApprovalClientEnabled,
 } from "../../../extensions/telegram/api.js";
@@ -111,6 +115,27 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
       return {
         shouldContinue: false,
         reply: { text: "❌ You are not authorized to approve exec requests on Telegram." },
+      };
+    }
+  }
+
+  if (params.command.channel === "discord") {
+    if (!isDiscordExecApprovalClientEnabled({ cfg: params.cfg, accountId: params.ctx.AccountId })) {
+      return {
+        shouldContinue: false,
+        reply: { text: "❌ Discord exec approvals are not enabled for this bot account." },
+      };
+    }
+    if (
+      !isDiscordExecApprovalApprover({
+        cfg: params.cfg,
+        accountId: params.ctx.AccountId,
+        senderId: params.command.senderId,
+      })
+    ) {
+      return {
+        shouldContinue: false,
+        reply: { text: "❌ You are not authorized to approve exec requests on Discord." },
       };
     }
   }
