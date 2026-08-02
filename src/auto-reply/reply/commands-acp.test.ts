@@ -183,6 +183,7 @@ function createDiscordParams(commandBody: string, cfg: OpenClawConfig = baseCfg)
     AccountId: "default",
   });
   params.command.senderId = "user-1";
+  params.command.senderIsOwner = true;
   return params;
 }
 
@@ -340,6 +341,7 @@ function createTelegramTopicParams(commandBody: string, cfg: OpenClawConfig = ba
     MessageThreadId: "498",
   });
   params.command.senderId = "user-1";
+  params.command.senderIsOwner = true;
   return params;
 }
 
@@ -352,6 +354,7 @@ function createTelegramDmParams(commandBody: string, cfg: OpenClawConfig = baseC
     AccountId: "default",
   });
   params.command.senderId = "user-1";
+  params.command.senderIsOwner = true;
   return params;
 }
 
@@ -380,6 +383,7 @@ function createMatrixRoomParams(commandBody: string, cfg: OpenClawConfig = baseC
     AccountId: "default",
   });
   params.command.senderId = "user-1";
+  params.command.senderIsOwner = true;
   return params;
 }
 
@@ -407,6 +411,7 @@ function createFeishuDmParams(commandBody: string, cfg: OpenClawConfig = baseCfg
     SenderId: "ou_sender_1",
   });
   params.command.senderId = "user-1";
+  params.command.senderIsOwner = true;
   return params;
 }
 
@@ -1093,6 +1098,42 @@ describe("/acp command", () => {
       }),
     );
     expect(result?.reply?.text).toContain("Updated ACP runtime mode");
+  });
+
+  it("blocks mutating /acp actions for authorized non-owner external senders", async () => {
+    const spawnParams = createDiscordParams("/acp spawn codex --cwd /home/bob/clawd");
+    spawnParams.command.senderIsOwner = false;
+    const spawnResult = await handleAcpCommand(spawnParams, true);
+    expect(spawnResult?.shouldContinue).toBe(false);
+    expect(hoisted.ensureSessionMock).not.toHaveBeenCalled();
+
+    mockBoundThreadSession();
+    const setModeParams = createThreadParams("/acp set-mode plan");
+    setModeParams.command.senderIsOwner = false;
+    const setModeResult = await handleAcpCommand(setModeParams, true);
+    expect(setModeResult?.shouldContinue).toBe(false);
+    expect(hoisted.setModeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps read-only /acp actions available to authorized non-owner external senders", async () => {
+    hoisted.listAcpSessionEntriesMock.mockResolvedValue([
+      createAcpSessionEntry({
+        identity: {
+          state: "resolved",
+          source: "status",
+          acpxSessionId: "runtime-1",
+          agentSessionId: "session-1",
+          lastUpdatedAt: Date.now(),
+        },
+      }),
+    ]);
+
+    const params = createDiscordParams("/acp sessions");
+    params.command.senderIsOwner = false;
+    const result = await handleAcpCommand(params, true);
+
+    expect(result?.shouldContinue).toBe(false);
+    expect(result?.reply?.text).toContain("ACP sessions");
   });
 
   it("blocks mutating /acp actions for internal operator.write clients", async () => {
