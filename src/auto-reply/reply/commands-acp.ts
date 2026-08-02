@@ -1,5 +1,8 @@
 import { logVerbose } from "../../globals.js";
-import { requireGatewayClientScopeForInternalChannel } from "./command-gates.js";
+import {
+  rejectNonOwnerCommand,
+  requireGatewayClientScopeForInternalChannel,
+} from "./command-gates.js";
 import {
   handleAcpDoctorAction,
   handleAcpInstallAction,
@@ -95,6 +98,8 @@ export const handleAcpCommand: CommandHandler = async (params, allowTextCommands
   }
 
   if (ACP_MUTATING_ACTIONS.has(action)) {
+    // Internal clients need operator.admin; external channels need owner identity.
+    // Scope check first so gateway clients keep the explicit missing-scope reply.
     const scopeBlock = requireGatewayClientScopeForInternalChannel(params, {
       label: "/acp",
       allowedScopes: ["operator.admin"],
@@ -102,6 +107,10 @@ export const handleAcpCommand: CommandHandler = async (params, allowTextCommands
     });
     if (scopeBlock) {
       return scopeBlock;
+    }
+    const nonOwner = rejectNonOwnerCommand(params, "/acp");
+    if (nonOwner) {
+      return nonOwner;
     }
   }
 
