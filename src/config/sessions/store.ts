@@ -560,6 +560,10 @@ export async function saveSessionStore(
   store: Record<string, SessionEntry>,
   opts?: SaveSessionStoreOptions,
 ): Promise<void> {
+  // IMPORTANT: This writes the caller-provided `store` snapshot as-is under the
+  // file lock. It does NOT re-read disk first. Concurrent writers that load,
+  // mutate, then call saveSessionStore can clobber each other. Prefer
+  // updateSessionStore() for read-modify-write updates.
   await withSessionStoreLock(storePath, async () => {
     await saveSessionStoreUnlocked(storePath, store, opts);
   });
