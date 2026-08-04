@@ -25,6 +25,10 @@ function createAgentRuntime(payloads: Array<Record<string, unknown>>) {
       resolveStorePath: () => "/tmp/openclaw/sessions.json",
       loadSessionStore: () => ({}),
       saveSessionStore: async () => {},
+      updateSessionStore: async (
+        _storePath: string,
+        mutator: (store: Record<string, unknown>) => unknown,
+      ) => mutator({}),
       resolveSessionFilePath: () => "/tmp/openclaw/sessions/session.jsonl",
     },
   } as unknown as CoreAgentDeps;

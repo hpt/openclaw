@@ -196,18 +196,25 @@ export async function generateVoiceResponse(
   // Ensure workspace exists
   await agentRuntime.ensureAgentWorkspace({ dir: workspaceDir });
 
-  // Load or create session entry
+  // Load or create session entry under the session-store lock so concurrent
+  // writers (heartbeat, agent runs, cron) cannot clobber unrelated keys.
   const sessionStore = agentRuntime.session.loadSessionStore(storePath);
   const now = Date.now();
   let sessionEntry = sessionStore[sessionKey] as SessionEntry | undefined;
 
   if (!sessionEntry) {
-    sessionEntry = {
+    const created: SessionEntry = {
       sessionId: crypto.randomUUID(),
       updatedAt: now,
     };
-    sessionStore[sessionKey] = sessionEntry;
-    await agentRuntime.session.saveSessionStore(storePath, sessionStore);
+    sessionEntry = await agentRuntime.session.updateSessionStore(storePath, (store) => {
+      const existing = store[sessionKey] as SessionEntry | undefined;
+      if (existing?.sessionId) {
+        return existing;
+      }
+      store[sessionKey] = created;
+      return created;
+    });
   }
 
   const sessionId = sessionEntry.sessionId;

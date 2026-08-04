@@ -12,6 +12,7 @@ import {
   loadSessionStore,
   mergeSessionEntry,
   resolveAndPersistSessionFile,
+  saveSessionStore,
   updateSessionStore,
 } from "../sessions.js";
 import type { SessionConfig } from "../types.base.js";
@@ -231,6 +232,81 @@ describe("session store lock (Promise chain mutex)", () => {
 
     const store = loadSessionStore(storePath);
     expect((store[key] as Record<string, unknown>).counter).toBe(N);
+  });
+
+  it("updateSessionStore RMW keeps sibling keys that stale saveSessionStore snapshots drop", async () => {
+    const heartbeatKey = "agent:main:main";
+    const siblingKey = "agent:main:discord:channel:123";
+    const { storePath } = await makeTmpStore({
+      [heartbeatKey]: {
+        sessionId: "hb-1",
+        updatedAt: 100,
+        lastChannel: "telegram",
+      },
+    });
+
+    // Simulate the old heartbeat pattern: load a snapshot, mutate locally, then
+    // save the whole object. Concurrent updateSessionStore writers land first.
+    const staleSnapshot = loadSessionStore(storePath);
+    const staleEntry = staleSnapshot[heartbeatKey];
+    expect(staleEntry).toBeTruthy();
+
+    await updateSessionStore(storePath, (store) => {
+      store[siblingKey] = {
+        sessionId: "sib-1",
+        updatedAt: 200,
+        lastChannel: "discord",
+        lastTo: "channel:123",
+      };
+      store[heartbeatKey] = {
+        ...store[heartbeatKey],
+        modelOverride: "sonnet-4.6",
+      };
+    });
+
+    // Dangerous full-snapshot write would drop the sibling + modelOverride.
+    staleSnapshot[heartbeatKey] = {
+      ...staleEntry,
+      lastHeartbeatText: "ping",
+      lastHeartbeatSentAt: 300,
+    };
+    await saveSessionStore(storePath, staleSnapshot);
+    const clobbered = loadSessionStore(storePath);
+    expect(clobbered[siblingKey]).toBeUndefined();
+    expect(clobbered[heartbeatKey]?.modelOverride).toBeUndefined();
+    expect(clobbered[heartbeatKey]?.lastHeartbeatText).toBe("ping");
+
+    // Restore sibling via a locked update, then apply the safe RMW path used by
+    // the heartbeat/voice-call fix and confirm the sibling survives.
+    await updateSessionStore(storePath, (store) => {
+      store[siblingKey] = {
+        sessionId: "sib-1",
+        updatedAt: 200,
+        lastChannel: "discord",
+        lastTo: "channel:123",
+      };
+      store[heartbeatKey] = {
+        ...store[heartbeatKey],
+        modelOverride: "sonnet-4.6",
+      };
+    });
+
+    await updateSessionStore(storePath, (store) => {
+      const current = store[heartbeatKey];
+      if (!current) {
+        return;
+      }
+      store[heartbeatKey] = {
+        ...current,
+        lastHeartbeatText: "pong",
+        lastHeartbeatSentAt: 400,
+      };
+    });
+
+    const preserved = loadSessionStore(storePath);
+    expect(preserved[siblingKey]?.sessionId).toBe("sib-1");
+    expect(preserved[heartbeatKey]?.modelOverride).toBe("sonnet-4.6");
+    expect(preserved[heartbeatKey]?.lastHeartbeatText).toBe("pong");
   });
 
   it("skips session store disk writes when payload is unchanged", async () => {

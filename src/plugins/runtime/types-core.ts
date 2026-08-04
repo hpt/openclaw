@@ -31,6 +31,7 @@ export type PluginRuntimeCore = {
       resolveStorePath: typeof import("../../config/sessions.js").resolveStorePath;
       loadSessionStore: typeof import("../../config/sessions.js").loadSessionStore;
       saveSessionStore: typeof import("../../config/sessions.js").saveSessionStore;
+      updateSessionStore: typeof import("../../config/sessions.js").updateSessionStore;
       resolveSessionFilePath: typeof import("../../config/sessions.js").resolveSessionFilePath;
     };
   };

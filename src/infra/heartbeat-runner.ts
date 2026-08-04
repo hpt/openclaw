@@ -33,7 +33,6 @@ import {
   resolveAgentMainSessionKey,
   resolveSessionFilePath,
   resolveStorePath,
-  saveSessionStore,
   updateSessionStore,
 } from "../config/sessions.js";
 import type { AgentDefaultsConfig } from "../config/types.agent-defaults.js";
@@ -592,8 +591,10 @@ export async function runHeartbeatOnce(opts: {
       nowMs: startedAt,
       forceNew: true,
     });
-    cronSession.store[isolatedKey] = cronSession.sessionEntry;
-    await saveSessionStore(cronSession.storePath, cronSession.store);
+    // Persist only the isolated entry under lock; never rewrite a stale full-store snapshot.
+    await updateSessionStore(cronSession.storePath, (store) => {
+      store[isolatedKey] = cronSession.sessionEntry;
+    });
     runSessionKey = isolatedKey;
     runStorePath = cronSession.storePath;
   }
@@ -905,16 +906,17 @@ export async function runHeartbeatOnce(opts: {
 
     // Record last delivered heartbeat payload for dedupe.
     if (!shouldSkipMain && normalized.text.trim()) {
-      const store = loadSessionStore(storePath);
-      const current = store[sessionKey];
-      if (current) {
+      await updateSessionStore(storePath, (store) => {
+        const current = store[sessionKey];
+        if (!current) {
+          return;
+        }
         store[sessionKey] = {
           ...current,
           lastHeartbeatText: normalized.text,
           lastHeartbeatSentAt: startedAt,
         };
-        await saveSessionStore(storePath, store);
-      }
+      });
     }
 
     emitHeartbeatEvent({
