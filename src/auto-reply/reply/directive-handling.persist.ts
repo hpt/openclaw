@@ -14,10 +14,7 @@ import { applyVerboseOverride } from "../../sessions/level-overrides.js";
 import { applyModelOverrideToSessionEntry } from "../../sessions/model-overrides.js";
 import { resolveModelSelectionFromDirective } from "./directive-handling.model-selection.js";
 import type { InlineDirectives } from "./directive-handling.parse.js";
-import {
-  canPersistInternalExecDirective,
-  enqueueModeSwitchEvents,
-} from "./directive-handling.shared.js";
+import { canPersistExecDirective, enqueueModeSwitchEvents } from "./directive-handling.shared.js";
 import type { ElevatedLevel, ReasoningLevel } from "./directives.js";
 
 export async function persistInlineDirectives(params: {
@@ -42,6 +39,7 @@ export async function persistInlineDirectives(params: {
   agentCfg: NonNullable<OpenClawConfig["agents"]>["defaults"] | undefined;
   surface?: string;
   gatewayClientScopes?: string[];
+  senderIsOwner?: boolean;
 }): Promise<{ provider: string; model: string; contextTokens: number }> {
   const {
     directives,
@@ -61,9 +59,10 @@ export async function persistInlineDirectives(params: {
     agentCfg,
   } = params;
   let { provider, model } = params;
-  const allowInternalExecPersistence = canPersistInternalExecDirective({
+  const allowExecPersistence = canPersistExecDirective({
     surface: params.surface,
     gatewayClientScopes: params.gatewayClientScopes,
+    senderIsOwner: params.senderIsOwner,
   });
   const activeAgentId = sessionKey
     ? resolveSessionAgentId({ sessionKey, config: cfg })
@@ -119,7 +118,7 @@ export async function persistInlineDirectives(params: {
         (directives.elevatedLevel !== prevElevatedLevel && directives.elevatedLevel !== undefined);
       updated = true;
     }
-    if (directives.hasExecDirective && directives.hasExecOptions && allowInternalExecPersistence) {
+    if (directives.hasExecDirective && directives.hasExecOptions && allowExecPersistence) {
       if (directives.execHost) {
         sessionEntry.execHost = directives.execHost;
         updated = true;

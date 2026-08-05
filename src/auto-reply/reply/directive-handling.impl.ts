@@ -18,11 +18,11 @@ import { maybeHandleModelDirectiveInfo } from "./directive-handling.model.js";
 import type { HandleDirectiveOnlyParams } from "./directive-handling.params.js";
 import { maybeHandleQueueDirective } from "./directive-handling.queue-validation.js";
 import {
-  canPersistInternalExecDirective,
+  canPersistExecDirective,
   formatDirectiveAck,
   formatElevatedRuntimeHint,
   formatElevatedUnavailableText,
-  formatInternalExecPersistenceDeniedText,
+  formatExecPersistenceDeniedText,
   enqueueModeSwitchEvents,
   withOptions,
 } from "./directive-handling.shared.js";
@@ -94,9 +94,10 @@ export async function handleDirectiveOnly(
     sessionKey: params.sessionKey,
   }).sandboxed;
   const shouldHintDirectRuntime = directives.hasElevatedDirective && !runtimeIsSandboxed;
-  const allowInternalExecPersistence = canPersistInternalExecDirective({
+  const allowExecPersistence = canPersistExecDirective({
     surface: params.surface,
     gatewayClientScopes: params.gatewayClientScopes,
+    senderIsOwner: params.senderIsOwner,
   });
 
   const modelInfo = await maybeHandleModelDirectiveInfo({
@@ -320,7 +321,7 @@ export async function handleDirectiveOnly(
     (directives.hasVerboseDirective && Boolean(directives.verboseLevel)) ||
     (directives.hasReasoningDirective && Boolean(directives.reasoningLevel)) ||
     (directives.hasElevatedDirective && Boolean(directives.elevatedLevel)) ||
-    (directives.hasExecDirective && directives.hasExecOptions && allowInternalExecPersistence) ||
+    (directives.hasExecDirective && directives.hasExecOptions && allowExecPersistence) ||
     Boolean(modelSelection) ||
     directives.hasQueueDirective ||
     shouldDowngradeXHigh;
@@ -361,7 +362,7 @@ export async function handleDirectiveOnly(
         elevatedChanged ||
         (directives.elevatedLevel !== prevElevatedLevel && directives.elevatedLevel !== undefined);
     }
-    if (directives.hasExecDirective && directives.hasExecOptions && allowInternalExecPersistence) {
+    if (directives.hasExecDirective && directives.hasExecOptions && allowExecPersistence) {
       if (directives.execHost) {
         sessionEntry.execHost = directives.execHost;
       }
@@ -471,7 +472,7 @@ export async function handleDirectiveOnly(
       parts.push(formatElevatedRuntimeHint());
     }
   }
-  if (directives.hasExecDirective && directives.hasExecOptions && allowInternalExecPersistence) {
+  if (directives.hasExecDirective && directives.hasExecOptions && allowExecPersistence) {
     const execParts: string[] = [];
     if (directives.execHost) {
       execParts.push(`host=${directives.execHost}`);
@@ -489,8 +490,8 @@ export async function handleDirectiveOnly(
       parts.push(formatDirectiveAck(`Exec defaults set (${execParts.join(", ")}).`));
     }
   }
-  if (directives.hasExecDirective && directives.hasExecOptions && !allowInternalExecPersistence) {
-    parts.push(formatDirectiveAck(formatInternalExecPersistenceDeniedText()));
+  if (directives.hasExecDirective && directives.hasExecOptions && !allowExecPersistence) {
+    parts.push(formatDirectiveAck(formatExecPersistenceDeniedText({ surface: params.surface })));
   }
   if (shouldDowngradeXHigh) {
     parts.push(

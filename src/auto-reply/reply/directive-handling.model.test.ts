@@ -573,9 +573,49 @@ describe("handleDirectiveOnly model persist behavior (fixes #1435)", () => {
     expect(sessionEntry.execAsk).toBe("always");
     expect(sessionEntry.execNode).toBe("worker-1");
   });
+
+  it("blocks authorized non-owner external callers from persisting exec defaults", async () => {
+    const directives = parseInlineDirectives("/exec host=gateway security=full ask=off");
+    const sessionEntry = createSessionEntry();
+    const sessionStore = { [sessionKey]: sessionEntry };
+    const result = await handleDirectiveOnly(
+      createHandleParams({
+        directives,
+        sessionEntry,
+        sessionStore,
+        surface: "telegram",
+        senderIsOwner: false,
+      }),
+    );
+
+    expect(result?.text).toContain("owner access");
+    expect(sessionEntry.execHost).toBeUndefined();
+    expect(sessionEntry.execSecurity).toBeUndefined();
+    expect(sessionEntry.execAsk).toBeUndefined();
+  });
+
+  it("allows owner external callers to persist exec defaults", async () => {
+    const directives = parseInlineDirectives("/exec host=gateway security=full ask=off");
+    const sessionEntry = createSessionEntry();
+    const sessionStore = { [sessionKey]: sessionEntry };
+    const result = await handleDirectiveOnly(
+      createHandleParams({
+        directives,
+        sessionEntry,
+        sessionStore,
+        surface: "telegram",
+        senderIsOwner: true,
+      }),
+    );
+
+    expect(result?.text).toContain("Exec defaults set");
+    expect(sessionEntry.execHost).toBe("gateway");
+    expect(sessionEntry.execSecurity).toBe("full");
+    expect(sessionEntry.execAsk).toBe("off");
+  });
 });
 
-describe("persistInlineDirectives internal exec scope gate", () => {
+describe("persistInlineDirectives exec scope gate", () => {
   it("skips exec persistence for internal operator.write callers", async () => {
     const allowedModelKeys = new Set(["anthropic/claude-opus-4-5", "openai/gpt-4o"]);
     const directives = parseInlineDirectives(
@@ -613,5 +653,38 @@ describe("persistInlineDirectives internal exec scope gate", () => {
     expect(sessionEntry.execSecurity).toBeUndefined();
     expect(sessionEntry.execAsk).toBeUndefined();
     expect(sessionEntry.execNode).toBeUndefined();
+  });
+
+  it("skips exec persistence for external non-owners", async () => {
+    const allowedModelKeys = new Set(["anthropic/claude-opus-4-5"]);
+    const directives = parseInlineDirectives("/exec host=gateway security=full ask=off");
+    const sessionEntry = createSessionEntry();
+    const sessionStore = { "agent:main:main": sessionEntry };
+
+    await persistInlineDirectives({
+      directives,
+      cfg: baseConfig(),
+      sessionEntry,
+      sessionStore,
+      sessionKey: "agent:main:main",
+      storePath: "/tmp/sessions.json",
+      elevatedEnabled: true,
+      elevatedAllowed: true,
+      defaultProvider: "anthropic",
+      defaultModel: "claude-opus-4-5",
+      aliasIndex: baseAliasIndex(),
+      allowedModelKeys,
+      provider: "anthropic",
+      model: "claude-opus-4-5",
+      initialModelLabel: "anthropic/claude-opus-4-5",
+      formatModelSwitchEvent: (label) => `Switched to ${label}`,
+      agentCfg: undefined,
+      surface: "discord",
+      senderIsOwner: false,
+    });
+
+    expect(sessionEntry.execHost).toBeUndefined();
+    expect(sessionEntry.execSecurity).toBeUndefined();
+    expect(sessionEntry.execAsk).toBeUndefined();
   });
 });

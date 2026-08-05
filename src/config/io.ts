@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import JSON5 from "json5";
 import { ensureOwnerDisplaySecret } from "../agents/owner-display.js";
 import { loadDotEnv } from "../infra/dotenv.js";
+import { withFileLock, type FileLockOptions } from "../infra/file-lock.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import {
   loadShellEnvFallback,
@@ -1399,28 +1400,43 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
       );
       const cfgWithOwnerDisplaySecret = ownerDisplaySecretResolution.config;
       if (ownerDisplaySecretResolution.generatedSecret) {
-        AUTO_OWNER_DISPLAY_SECRET_BY_PATH.set(
-          configPath,
-          ownerDisplaySecretResolution.generatedSecret,
-        );
+        const generatedSecret = ownerDisplaySecretResolution.generatedSecret;
+        AUTO_OWNER_DISPLAY_SECRET_BY_PATH.set(configPath, generatedSecret);
         if (!AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.has(configPath)) {
           AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.add(configPath);
-          void writeConfigFile(cfgWithOwnerDisplaySecret, { expectedConfigPath: configPath })
-            .then(() => {
+          // Re-read under the config lock and persist only onto that fresh snapshot.
+          // Writing the in-memory loadConfig() object here races with concurrent
+          // writers (channels add, doctor, etc.): createMergePatch(disk, staleCfg)
+          // deletes keys present on disk but missing from the stale snapshot.
+          void (async () => {
+            try {
+              await withFileLock(configPath, CONFIG_IO_LOCK_OPTIONS, async () => {
+                clearConfigCache();
+                const { snapshot } = await readConfigFileSnapshotInternal();
+                const base =
+                  snapshot.exists && snapshot.valid
+                    ? structuredClone(snapshot.resolved)
+                    : ({} as OpenClawConfig);
+                if (base.commands?.ownerDisplaySecret) {
+                  // Concurrent writer already persisted a secret; keep disk as-is.
+                  return;
+                }
+                const next = ensureOwnerDisplaySecret(base, () => generatedSecret).config;
+                await writeConfigFileUnlocked(next, { expectedConfigPath: configPath });
+              });
               AUTO_OWNER_DISPLAY_SECRET_BY_PATH.delete(configPath);
               AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.delete(configPath);
-            })
-            .catch((err) => {
+            } catch (err) {
               if (!AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.has(configPath)) {
                 AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED.add(configPath);
                 deps.logger.warn(
                   `Failed to persist auto-generated commands.ownerDisplaySecret at ${configPath}: ${String(err)}`,
                 );
               }
-            })
-            .finally(() => {
+            } finally {
               AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT.delete(configPath);
-            });
+            }
+          })();
         }
       } else {
         AUTO_OWNER_DISPLAY_SECRET_BY_PATH.delete(configPath);
@@ -1645,6 +1661,12 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
   }
 
   async function writeConfigFile(cfg: OpenClawConfig, options: ConfigWriteOptions = {}) {
+    return await withFileLock(configPath, CONFIG_IO_LOCK_OPTIONS, async () =>
+      writeConfigFileUnlocked(cfg, options),
+    );
+  }
+
+  async function writeConfigFileUnlocked(cfg: OpenClawConfig, options: ConfigWriteOptions = {}) {
     clearConfigCache();
     let persistCandidate: unknown = cfg;
     const { snapshot } = await readConfigFileSnapshotInternal();
@@ -1906,6 +1928,16 @@ export function createConfigIO(overrides: ConfigIoDeps = {}) {
 // module scope. `OPENCLAW_CONFIG_PATH` (and friends) are expected to work even
 // when set after the module has been imported (tests, one-off scripts, etc.).
 const DEFAULT_CONFIG_CACHE_MS = 200;
+const CONFIG_IO_LOCK_OPTIONS: FileLockOptions = {
+  retries: {
+    retries: 10,
+    factor: 2,
+    minTimeout: 25,
+    maxTimeout: 2_500,
+    randomize: true,
+  },
+  stale: 30_000,
+};
 const AUTO_OWNER_DISPLAY_SECRET_BY_PATH = new Map<string, string>();
 const AUTO_OWNER_DISPLAY_SECRET_PERSIST_IN_FLIGHT = new Set<string>();
 const AUTO_OWNER_DISPLAY_SECRET_PERSIST_WARNED = new Set<string>();
