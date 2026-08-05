@@ -23,6 +23,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Config/io: persist auto-generated `commands.ownerDisplaySecret` from a freshly re-read config under the write lock, so concurrent channel/config writers are not wiped by stale `createMergePatch` null-deletes.
 - Commands/exec: require owner access before external messaging callers can persist `/exec` host/security/ask/node session defaults, matching the existing internal `operator.admin` gate so `commands.allowFrom` alone cannot weaken exec policy.
 - Memory/builtin sqlite: cut redundant sync and status query churn by snapshotting file state once per source, reusing sync statements, and consolidating status aggregation reads, which reduces builtin memory overhead on sync/status/doctor-style paths. Thanks @vincentkoc.
 - ACP/direct chats: always deliver a terminal ACP result when final TTS does not yield audio, even if block text already streamed earlier, and skip redundant empty-text final synthesis. (#53692) Thanks @w-sss.
