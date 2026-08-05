@@ -14,18 +14,28 @@ export const withOptions = (line: string, options: string) =>
 export const formatElevatedRuntimeHint = () =>
   `${SYSTEM_MARK} Runtime is direct; sandboxing does not apply.`;
 
-export const formatInternalExecPersistenceDeniedText = () =>
-  "Exec defaults require operator.admin for internal gateway callers; skipped persistence.";
+export function formatExecPersistenceDeniedText(params: { surface?: string }): string {
+  if (isInternalMessageChannel(params.surface)) {
+    return "Exec defaults require operator.admin for internal gateway callers; skipped persistence.";
+  }
+  return "Exec defaults require owner access; skipped persistence.";
+}
 
-export function canPersistInternalExecDirective(params: {
+/**
+ * Exec host/security/ask/node persistence is privileged:
+ * - internal/webchat: operator.admin
+ * - external channels: senderIsOwner (commands.allowFrom alone is not enough)
+ */
+export function canPersistExecDirective(params: {
   surface?: string;
   gatewayClientScopes?: string[];
+  senderIsOwner?: boolean;
 }): boolean {
-  if (!isInternalMessageChannel(params.surface)) {
-    return true;
+  if (isInternalMessageChannel(params.surface)) {
+    const scopes = params.gatewayClientScopes ?? [];
+    return scopes.includes("operator.admin");
   }
-  const scopes = params.gatewayClientScopes ?? [];
-  return scopes.includes("operator.admin");
+  return params.senderIsOwner === true;
 }
 
 export const formatElevatedEvent = (level: ElevatedLevel) => {
