@@ -1305,6 +1305,15 @@ export function getSubagentSessionRuntimeMs(
   return Math.max(0, accumulatedRuntimeMs + Math.max(0, currentRunEndedAt - entry.startedAt));
 }
 
+function isKilledSubagentRun(
+  entry: Pick<SubagentRunRecord, "endedReason" | "suppressAnnounceReason"> | null | undefined,
+): boolean {
+  return (
+    entry?.endedReason === SUBAGENT_ENDED_REASON_KILLED ||
+    entry?.suppressAnnounceReason === "killed"
+  );
+}
+
 export function replaceSubagentRunAfterSteer(params: {
   previousRunId: string;
   nextRunId: string;
@@ -1319,8 +1328,16 @@ export function replaceSubagentRunAfterSteer(params: {
   }
 
   const previous = subagentRuns.get(previousRunId);
+  // A concurrent kill must win over an in-flight steer restart. Otherwise replace clears
+  // endedAt and resurrects a run the operator just terminated.
+  if (isKilledSubagentRun(previous)) {
+    return false;
+  }
   const source = previous ?? params.fallback;
   if (!source) {
+    return false;
+  }
+  if (isKilledSubagentRun(source)) {
     return false;
   }
 

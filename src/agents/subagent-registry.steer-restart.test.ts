@@ -523,6 +523,48 @@ describe("subagent registry steer restarts", () => {
     expect(announce.childRunId).toBe("run-failed-restart");
   });
 
+  it("refuses steer replacement after a concurrent kill", async () => {
+    const childSessionKey = "agent:main:subagent:steer-after-kill";
+
+    registerRun({
+      runId: "run-steer-after-kill",
+      childSessionKey,
+      task: "steer me",
+    });
+
+    expect(mod.markSubagentRunForSteerRestart("run-steer-after-kill")).toBe(true);
+    expect(
+      mod.markSubagentRunTerminated({
+        runId: "run-steer-after-kill",
+        reason: "manual kill",
+      }),
+    ).toBe(1);
+
+    const replaced = mod.replaceSubagentRunAfterSteer({
+      previousRunId: "run-steer-after-kill",
+      nextRunId: "run-steer-resurrect",
+      fallback: {
+        runId: "run-steer-after-kill",
+        childSessionKey,
+        requesterSessionKey: MAIN_REQUESTER_SESSION_KEY,
+        requesterDisplayKey: MAIN_REQUESTER_DISPLAY_KEY,
+        task: "steer me",
+        cleanup: "keep",
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+      },
+      runTimeoutSeconds: 0,
+    });
+
+    expect(replaced).toBe(false);
+    expect(mod.isSubagentSessionRunActive(childSessionKey)).toBe(false);
+    expect(
+      mod
+        .listSubagentRunsForRequester(MAIN_REQUESTER_SESSION_KEY)
+        .some((entry) => entry.runId === "run-steer-resurrect"),
+    ).toBe(false);
+  });
+
   it("marks killed runs terminated and inactive", async () => {
     const childSessionKey = "agent:main:subagent:killed";
 
