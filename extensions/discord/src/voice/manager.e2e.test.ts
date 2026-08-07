@@ -155,10 +155,11 @@ describe("DiscordVoiceManager", () => {
       typeof managerModule.DiscordVoiceManager
     >[0]["discordConfig"] = {},
     clientOverride?: ReturnType<typeof createClient>,
+    cfg: ConstructorParameters<typeof managerModule.DiscordVoiceManager>[0]["cfg"] = {},
   ) =>
     new managerModule.DiscordVoiceManager({
       client: (clientOverride ?? createClient()) as never,
-      cfg: {},
+      cfg,
       discordConfig,
       accountId: "default",
       runtime: createRuntime(),
@@ -338,6 +339,50 @@ describe("DiscordVoiceManager", () => {
       | { senderIsOwner?: boolean }
       | undefined;
     expect(commandArgs?.senderIsOwner).toBe(false);
+  });
+
+  it("does not treat Discord allowFrom helpers as owners when commands.ownerAllowFrom is set", async () => {
+    const client = createClient();
+    client.fetchMember.mockResolvedValue({
+      nickname: "Helper Nick",
+      user: {
+        id: "u-helper",
+        username: "helper",
+        globalName: "Helper",
+        discriminator: "9999",
+      },
+    });
+    const manager = createManager({ allowFrom: ["discord:u-owner", "discord:u-helper"] }, client, {
+      commands: { ownerAllowFrom: ["discord:u-owner"] },
+    });
+    await processVoiceSegment(manager, "u-helper");
+
+    const commandArgs = agentCommandMock.mock.calls.at(-1)?.[0] as
+      | { senderIsOwner?: boolean }
+      | undefined;
+    expect(commandArgs?.senderIsOwner).toBe(false);
+  });
+
+  it("still marks commands.ownerAllowFrom speakers as owners for voice turns", async () => {
+    const client = createClient();
+    client.fetchMember.mockResolvedValue({
+      nickname: "Owner Nick",
+      user: {
+        id: "u-owner",
+        username: "owner",
+        globalName: "Owner",
+        discriminator: "1234",
+      },
+    });
+    const manager = createManager({ allowFrom: ["discord:u-owner", "discord:u-helper"] }, client, {
+      commands: { ownerAllowFrom: ["discord:u-owner"] },
+    });
+    await processVoiceSegment(manager, "u-owner");
+
+    const commandArgs = agentCommandMock.mock.calls.at(-1)?.[0] as
+      | { senderIsOwner?: boolean }
+      | undefined;
+    expect(commandArgs?.senderIsOwner).toBe(true);
   });
 
   it("reuses speaker context cache for repeated segments from the same speaker", async () => {

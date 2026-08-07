@@ -295,6 +295,22 @@ export function resolveDiscordOwnerAccess(params: {
   return { ownerAllowList, ownerAllowed };
 }
 
+/**
+ * Owner allowlist for Discord voice transcript turns.
+ * Prefer commands.ownerAllowFrom when configured; otherwise fall back to the
+ * Discord DM allowlist (channels.discord.allowFrom / dm.allowFrom).
+ */
+export function resolveDiscordVoiceOwnerAllowFrom(params: {
+  ownerAllowFrom?: Array<string | number>;
+  allowFrom?: string[];
+  dmAllowFrom?: string[];
+}): string[] {
+  if (Array.isArray(params.ownerAllowFrom) && params.ownerAllowFrom.length > 0) {
+    return params.ownerAllowFrom.map((entry) => String(entry));
+  }
+  return params.allowFrom ?? params.dmAllowFrom ?? [];
+}
+
 export function resolveDiscordCommandAuthorized(params: {
   isDirectMessage: boolean;
   allowFrom?: string[];
