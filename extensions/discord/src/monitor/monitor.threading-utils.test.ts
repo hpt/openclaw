@@ -7,6 +7,7 @@ import {
   resolveDiscordMemberAllowed,
   resolveDiscordOwnerAllowFrom,
   resolveDiscordRoleAllowed,
+  resolveDiscordVoiceOwnerAllowFrom,
 } from "./allow-list.js";
 import {
   clearGateways,
@@ -22,6 +23,33 @@ import {
   resolveDiscordAutoThreadReplyPlan,
   resolveDiscordReplyDeliveryPlan,
 } from "./threading.js";
+
+describe("resolveDiscordVoiceOwnerAllowFrom", () => {
+  it("prefers commands.ownerAllowFrom over Discord allowFrom", () => {
+    expect(
+      resolveDiscordVoiceOwnerAllowFrom({
+        ownerAllowFrom: ["discord:owner"],
+        allowFrom: ["discord:owner", "discord:helper"],
+      }),
+    ).toEqual(["discord:owner"]);
+  });
+
+  it("falls back to Discord allowFrom when ownerAllowFrom is unset", () => {
+    expect(
+      resolveDiscordVoiceOwnerAllowFrom({
+        allowFrom: ["discord:owner", "discord:helper"],
+      }),
+    ).toEqual(["discord:owner", "discord:helper"]);
+  });
+
+  it("falls back to dm.allowFrom when top-level allowFrom is unset", () => {
+    expect(
+      resolveDiscordVoiceOwnerAllowFrom({
+        dmAllowFrom: ["discord:dm-owner"],
+      }),
+    ).toEqual(["discord:dm-owner"]);
+  });
+});
 
 describe("resolveDiscordOwnerAllowFrom", () => {
   it("returns undefined when no allowlist is configured", () => {

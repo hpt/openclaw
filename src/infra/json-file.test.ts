@@ -54,4 +54,15 @@ describe("json-file helpers", () => {
       expect(loadJsonFile(pathname)).toEqual({ enabled: true, count: 2 });
     });
   });
+
+  it("does not leave temp files after a successful atomic replace", async () => {
+    await withTempDir({ prefix: "openclaw-json-file-" }, async (root) => {
+      const pathname = path.join(root, "config.json");
+      saveJsonFile(pathname, { enabled: true });
+
+      const leftovers = fs.readdirSync(root).filter((name) => name.endsWith(".tmp"));
+      expect(leftovers).toEqual([]);
+      expect(loadJsonFile(pathname)).toEqual({ enabled: true });
+    });
+  });
 });

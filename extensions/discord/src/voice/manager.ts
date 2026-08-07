@@ -21,7 +21,10 @@ import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { parseTtsDirectives } from "openclaw/plugin-sdk/speech";
 import { textToSpeech } from "openclaw/plugin-sdk/speech-runtime";
 import { formatMention } from "../mentions.js";
-import { resolveDiscordOwnerAccess } from "../monitor/allow-list.js";
+import {
+  resolveDiscordOwnerAccess,
+  resolveDiscordVoiceOwnerAllowFrom,
+} from "../monitor/allow-list.js";
 import { formatDiscordUserTag } from "../monitor/format.js";
 import { loadDiscordVoiceSdk } from "./sdk-runtime.js";
 
@@ -235,7 +238,6 @@ export class DiscordVoiceManager {
   private botUserId?: string;
   private readonly voiceEnabled: boolean;
   private autoJoinTask: Promise<void> | null = null;
-  private readonly ownerAllowFrom: string[];
   private readonly allowDangerousNameMatching: boolean;
   private readonly speakerContextCache = new Map<
     string,
@@ -258,8 +260,6 @@ export class DiscordVoiceManager {
   ) {
     this.botUserId = params.botUserId;
     this.voiceEnabled = params.discordConfig.voice?.enabled !== false;
-    this.ownerAllowFrom =
-      params.discordConfig.allowFrom ?? params.discordConfig.dm?.allowFrom ?? [];
     this.allowDangerousNameMatching = isDangerousNameMatchingEnabled(params.discordConfig);
   }
 
@@ -749,8 +749,13 @@ export class DiscordVoiceManager {
   }
 
   private resolveSpeakerIsOwner(params: { id: string; name?: string; tag?: string }): boolean {
+    const allowFrom = resolveDiscordVoiceOwnerAllowFrom({
+      ownerAllowFrom: this.params.cfg.commands?.ownerAllowFrom,
+      allowFrom: this.params.discordConfig.allowFrom,
+      dmAllowFrom: this.params.discordConfig.dm?.allowFrom,
+    });
     return resolveDiscordOwnerAccess({
-      allowFrom: this.ownerAllowFrom,
+      allowFrom,
       sender: {
         id: params.id,
         name: params.name,

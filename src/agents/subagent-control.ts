@@ -26,6 +26,7 @@ import { INTERNAL_MESSAGE_CHANNEL } from "../utils/message-channel.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { abortEmbeddedPiRun } from "./pi-embedded.js";
 import { resolveStoredSubagentCapabilities } from "./subagent-capabilities.js";
+import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import {
   clearSubagentRunSteerRestart,
   countPendingDescendantRuns,
@@ -776,6 +777,29 @@ export async function steerControlledSubagentRun(params: {
     });
   } catch {
     // Continue even if wait fails; steer should still be attempted.
+  }
+
+  // Re-validate after the abort-settle wait: a concurrent kill (or delete-mode cleanup)
+  // can terminate/remove the run while steer is in flight. Spawning a replacement after
+  // that would resurrect a killed subagent.
+  const postWaitEntry = getLatestSubagentRunByChildSessionKey(params.entry.childSessionKey);
+  const postWaitPendingDescendants =
+    postWaitEntry && countPendingDescendantRuns(postWaitEntry.childSessionKey) > 0;
+  if (
+    !postWaitEntry ||
+    postWaitEntry.runId !== params.entry.runId ||
+    postWaitEntry.endedReason === SUBAGENT_ENDED_REASON_KILLED ||
+    postWaitEntry.suppressAnnounceReason === "killed" ||
+    (postWaitEntry.endedAt && !postWaitPendingDescendants)
+  ) {
+    clearSubagentRunSteerRestart(params.entry.runId);
+    return {
+      status: "done",
+      runId: params.entry.runId,
+      sessionKey: params.entry.childSessionKey,
+      sessionId,
+      text: `${resolveSubagentLabel(params.entry)} is already finished.`,
+    };
   }
 
   const idempotencyKey = crypto.randomUUID();
