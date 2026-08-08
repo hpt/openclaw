@@ -31,12 +31,12 @@ describe("config write lock for slash command RMW", () => {
         logger: { warn: () => {}, error: () => {} },
       });
 
-      const params = buildCommandTestParams('/config set agents.defaults.model="gpt-5.4"', {
+      const params = buildCommandTestParams('/config set messages.responsePrefix="race-test"', {
         commands: { text: true, config: true },
         gateway: { mode: "local" },
       });
       params.command.senderIsOwner = true;
-      params.command.channel = "webchat";
+      // External owner path — avoids internal webchat operator.admin scope gate.
 
       const channelWrite = withConfigWriteLock(async () => {
         const snapshot = await readConfigFileSnapshot();
@@ -55,10 +55,10 @@ describe("config write lock for slash command RMW", () => {
 
       expect(result.reply?.text).toContain("Config updated");
       const persisted = JSON.parse(await fs.readFile(configPath, "utf-8")) as {
-        agents?: { defaults?: { model?: unknown } };
+        messages?: { responsePrefix?: string };
         channels?: { telegram?: { botToken?: string; enabled?: boolean } };
       };
-      expect(persisted.agents?.defaults?.model).toBe("gpt-5.4");
+      expect(persisted.messages?.responsePrefix).toBe("race-test");
       expect(persisted.channels?.telegram).toMatchObject({
         enabled: true,
         botToken: "123456:ABCDEF",
