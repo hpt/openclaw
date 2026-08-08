@@ -7,6 +7,7 @@ import {
   resolveFileNpmSpecToLocalPath,
 } from "../../cli/plugins-command-helpers.js";
 import { persistPluginInstall } from "../../cli/plugins-install-persist.js";
+import { withConfigWriteLock } from "../../config/config-write-lock.js";
 import {
   readConfigFileSnapshot,
   validateConfigObjectWithPlugins,
@@ -420,27 +421,46 @@ export const handlePluginsCommand: CommandHandler = async (params, allowTextComm
     };
   }
 
-  const next = setPluginEnabledInConfig(
-    structuredClone(loaded.config),
-    plugin.id,
-    pluginsCommand.action === "enable",
-  );
-  const validated = validateConfigObjectWithPlugins(next);
-  if (!validated.ok) {
-    const issue = validated.issues[0];
+  // Re-read under the shared config lock so concurrent writers cannot be wiped
+  // by createMergePatch(disk, staleFullConfig) from an earlier /plugins load.
+  return await withConfigWriteLock(async () => {
+    const fresh = await loadPluginCommandState(params.workspaceDir);
+    if (!fresh.ok) {
+      return {
+        shouldContinue: false,
+        reply: { text: `⚠️ ${fresh.error}` },
+      };
+    }
+    const freshPlugin = findPlugin(fresh.report, pluginsCommand.name);
+    if (!freshPlugin) {
+      return {
+        shouldContinue: false,
+        reply: { text: `🔌 No plugin named "${pluginsCommand.name}" found.` },
+      };
+    }
+
+    const next = setPluginEnabledInConfig(
+      structuredClone(fresh.config),
+      freshPlugin.id,
+      pluginsCommand.action === "enable",
+    );
+    const validated = validateConfigObjectWithPlugins(next);
+    if (!validated.ok) {
+      const issue = validated.issues[0];
+      return {
+        shouldContinue: false,
+        reply: {
+          text: `⚠️ Config invalid after /plugins ${pluginsCommand.action} (${issue.path}: ${issue.message}).`,
+        },
+      };
+    }
+    await writeConfigFile(validated.config);
+
     return {
       shouldContinue: false,
       reply: {
-        text: `⚠️ Config invalid after /plugins ${pluginsCommand.action} (${issue.path}: ${issue.message}).`,
+        text: `🔌 Plugin "${freshPlugin.id}" ${pluginsCommand.action}d in ${fresh.path}. Restart the gateway to apply.`,
       },
     };
-  }
-  await writeConfigFile(validated.config);
-
-  return {
-    shouldContinue: false,
-    reply: {
-      text: `🔌 Plugin "${plugin.id}" ${pluginsCommand.action}d in ${loaded.path}. Restart the gateway to apply.`,
-    },
-  };
+  });
 };

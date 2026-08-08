@@ -6,6 +6,7 @@ import {
   setConfigValueAtPath,
   unsetConfigValueAtPath,
 } from "../../config/config-paths.js";
+import { withConfigWriteLock } from "../../config/config-write-lock.js";
 import {
   readConfigFileSnapshot,
   validateConfigObjectWithPlugins,
@@ -98,18 +99,17 @@ export const handleConfigCommand: CommandHandler = async (params, allowTextComma
     }
   }
 
-  const snapshot = await readConfigFileSnapshot();
-  if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
-    return {
-      shouldContinue: false,
-      reply: {
-        text: "⚠️ Config file is invalid; fix it before using /config.",
-      },
-    };
-  }
-  const parsedBase = structuredClone(snapshot.parsed as Record<string, unknown>);
-
   if (configCommand.action === "show") {
+    const snapshot = await readConfigFileSnapshot();
+    if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
+      return {
+        shouldContinue: false,
+        reply: {
+          text: "⚠️ Config file is invalid; fix it before using /config.",
+        },
+      };
+    }
+    const parsedBase = structuredClone(snapshot.parsed as Record<string, unknown>);
     const pathRaw = configCommand.path?.trim();
     if (pathRaw) {
       const parsedPath = parseConfigPath(pathRaw);
@@ -136,53 +136,79 @@ export const handleConfigCommand: CommandHandler = async (params, allowTextComma
   }
 
   if (configCommand.action === "unset") {
-    const removed = unsetConfigValueAtPath(parsedBase, parsedWritePath ?? []);
-    if (!removed) {
+    // Re-read under the shared config lock so concurrent writers cannot be wiped
+    // by createMergePatch(disk, staleFullConfig).
+    return await withConfigWriteLock(async () => {
+      const snapshot = await readConfigFileSnapshot();
+      if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
+        return {
+          shouldContinue: false,
+          reply: {
+            text: "⚠️ Config file is invalid; fix it before using /config.",
+          },
+        };
+      }
+      const parsedBase = structuredClone(snapshot.parsed as Record<string, unknown>);
+      const removed = unsetConfigValueAtPath(parsedBase, parsedWritePath ?? []);
+      if (!removed) {
+        return {
+          shouldContinue: false,
+          reply: { text: `⚙️ No config value found for ${configCommand.path}.` },
+        };
+      }
+      const validated = validateConfigObjectWithPlugins(parsedBase);
+      if (!validated.ok) {
+        const issue = validated.issues[0];
+        return {
+          shouldContinue: false,
+          reply: {
+            text: `⚠️ Config invalid after unset (${issue.path}: ${issue.message}).`,
+          },
+        };
+      }
+      await writeConfigFile(validated.config);
       return {
         shouldContinue: false,
-        reply: { text: `⚙️ No config value found for ${configCommand.path}.` },
+        reply: { text: `⚙️ Config updated: ${configCommand.path} removed.` },
       };
-    }
-    const validated = validateConfigObjectWithPlugins(parsedBase);
-    if (!validated.ok) {
-      const issue = validated.issues[0];
-      return {
-        shouldContinue: false,
-        reply: {
-          text: `⚠️ Config invalid after unset (${issue.path}: ${issue.message}).`,
-        },
-      };
-    }
-    await writeConfigFile(validated.config);
-    return {
-      shouldContinue: false,
-      reply: { text: `⚙️ Config updated: ${configCommand.path} removed.` },
-    };
+    });
   }
 
   if (configCommand.action === "set") {
-    setConfigValueAtPath(parsedBase, parsedWritePath ?? [], configCommand.value);
-    const validated = validateConfigObjectWithPlugins(parsedBase);
-    if (!validated.ok) {
-      const issue = validated.issues[0];
+    return await withConfigWriteLock(async () => {
+      const snapshot = await readConfigFileSnapshot();
+      if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
+        return {
+          shouldContinue: false,
+          reply: {
+            text: "⚠️ Config file is invalid; fix it before using /config.",
+          },
+        };
+      }
+      const parsedBase = structuredClone(snapshot.parsed as Record<string, unknown>);
+      setConfigValueAtPath(parsedBase, parsedWritePath ?? [], configCommand.value);
+      const validated = validateConfigObjectWithPlugins(parsedBase);
+      if (!validated.ok) {
+        const issue = validated.issues[0];
+        return {
+          shouldContinue: false,
+          reply: {
+            text: `⚠️ Config invalid after set (${issue.path}: ${issue.message}).`,
+          },
+        };
+      }
+      await writeConfigFile(validated.config);
+      const valueLabel =
+        typeof configCommand.value === "string"
+          ? `"${configCommand.value}"`
+          : JSON.stringify(configCommand.value);
       return {
         shouldContinue: false,
         reply: {
-          text: `⚠️ Config invalid after set (${issue.path}: ${issue.message}).`,
+          text: `⚙️ Config updated: ${configCommand.path}=${valueLabel ?? "null"}`,
         },
       };
-    }
-    await writeConfigFile(validated.config);
-    const valueLabel =
-      typeof configCommand.value === "string"
-        ? `"${configCommand.value}"`
-        : JSON.stringify(configCommand.value);
-    return {
-      shouldContinue: false,
-      reply: {
-        text: `⚙️ Config updated: ${configCommand.path}=${valueLabel ?? "null"}`,
-      },
-    };
+    });
   }
 
   return null;

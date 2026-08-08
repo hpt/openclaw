@@ -295,13 +295,24 @@ async function restoreHeartbeatUpdatedAt(params: {
  * Prune heartbeat transcript entries by truncating the file back to a previous size.
  * This removes the user+assistant turns that were written during a HEARTBEAT_OK run,
  * preventing context pollution from zero-information exchanges.
+ *
+ * Only safe for exclusive isolated-session transcripts. Shared main-session
+ * transcripts can receive concurrent followup/user turns after the heartbeat
+ * run releases the session write lock; byte-truncating those would delete
+ * non-heartbeat history.
  */
 async function pruneHeartbeatTranscript(params: {
   transcriptPath?: string;
   preHeartbeatSize?: number;
+  allowPrune: boolean;
 }) {
-  const { transcriptPath, preHeartbeatSize } = params;
-  if (!transcriptPath || typeof preHeartbeatSize !== "number" || preHeartbeatSize < 0) {
+  const { transcriptPath, preHeartbeatSize, allowPrune } = params;
+  if (
+    !allowPrune ||
+    !transcriptPath ||
+    typeof preHeartbeatSize !== "number" ||
+    preHeartbeatSize < 0
+  ) {
     return;
   }
   try {
@@ -699,11 +710,15 @@ export async function runHeartbeatOnce(opts: {
   try {
     // Capture transcript state before the heartbeat run so we can prune if HEARTBEAT_OK.
     // For isolated sessions, capture the isolated transcript (not the main session's).
-    const transcriptState = await captureTranscriptState({
-      storePath: runStorePath,
-      sessionKey: runSessionKey,
-      agentId,
-    });
+    // Byte-prune is only safe for isolatedSession (exclusive transcript).
+    const transcriptState = {
+      ...(await captureTranscriptState({
+        storePath: runStorePath,
+        sessionKey: runSessionKey,
+        agentId,
+      })),
+      allowPrune: useIsolatedSession,
+    };
 
     const heartbeatModelOverride = heartbeat?.model?.trim() || undefined;
     const suppressToolErrorWarnings = heartbeat?.suppressToolErrorWarnings === true;
