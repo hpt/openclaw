@@ -1,6 +1,7 @@
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelId } from "../../channels/plugins/types.js";
 import { normalizeChannelId } from "../../channels/registry.js";
+import { withConfigWriteLock } from "../../config/config-write-lock.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   readConfigFileSnapshot,
@@ -415,7 +416,8 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
         reply: { text: "⚠️ /allowlist add|remove requires scope dm or group." },
       };
     }
-    if (!plugin?.allowlist?.applyConfigEdit) {
+    const applyConfigEdit = plugin?.allowlist?.applyConfigEdit;
+    if (!applyConfigEdit) {
       return {
         shouldContinue: false,
         reply: {
@@ -423,65 +425,78 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
         },
       };
     }
+    // Scope "all" already rejected above; narrow for the plugin edit API.
+    const editScope = parsed.scope;
 
-    const snapshot = await readConfigFileSnapshot();
-    if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
-      return {
-        shouldContinue: false,
-        reply: { text: "⚠️ Config file is invalid; fix it before using /allowlist." },
-      };
-    }
-    const parsedConfig = structuredClone(snapshot.parsed as Record<string, unknown>);
-    const editResult = await plugin.allowlist.applyConfigEdit({
-      cfg: params.cfg,
-      parsedConfig,
-      accountId,
-      scope: parsed.scope,
-      action: parsed.action,
-      entry: parsed.entry,
-    });
-    if (!editResult) {
-      return {
-        shouldContinue: false,
-        reply: {
-          text: `⚠️ ${channelId} does not support ${parsed.scope} allowlist edits via /allowlist.`,
-        },
-      };
-    }
-    if (editResult.kind === "invalid-entry") {
-      return {
-        shouldContinue: false,
-        reply: { text: "⚠️ Invalid allowlist entry." },
-      };
-    }
-    const deniedText = resolveConfigWriteDeniedText({
-      cfg: params.cfg,
-      channel: params.command.channel,
-      channelId,
-      accountId: params.ctx.AccountId,
-      gatewayClientScopes: params.ctx.GatewayClientScopes,
-      target: editResult.writeTarget,
-    });
-    if (deniedText) {
-      return {
-        shouldContinue: false,
-        reply: {
-          text: deniedText,
-        },
-      };
-    }
-    const configChanged = editResult.changed;
-
-    if (configChanged) {
-      const validated = validateConfigObjectWithPlugins(parsedConfig);
-      if (!validated.ok) {
-        const issue = validated.issues[0];
+    // Re-read under the shared config lock so concurrent writers cannot be wiped
+    // by createMergePatch(disk, staleFullConfig) from an earlier /allowlist load.
+    let configChanged = false;
+    let pathLabel = "";
+    const lockedResult = await withConfigWriteLock(async () => {
+      const snapshot = await readConfigFileSnapshot();
+      if (!snapshot.valid || !snapshot.parsed || typeof snapshot.parsed !== "object") {
         return {
-          shouldContinue: false,
-          reply: { text: `⚠️ Config invalid after update (${issue.path}: ${issue.message}).` },
+          shouldContinue: false as const,
+          reply: { text: "⚠️ Config file is invalid; fix it before using /allowlist." },
         };
       }
-      await writeConfigFile(validated.config);
+      const parsedConfig = structuredClone(snapshot.parsed as Record<string, unknown>);
+      const editResult = await applyConfigEdit({
+        cfg: params.cfg,
+        parsedConfig,
+        accountId,
+        scope: editScope,
+        action: parsed.action,
+        entry: parsed.entry,
+      });
+      if (!editResult) {
+        return {
+          shouldContinue: false as const,
+          reply: {
+            text: `⚠️ ${channelId} does not support ${parsed.scope} allowlist edits via /allowlist.`,
+          },
+        };
+      }
+      if (editResult.kind === "invalid-entry") {
+        return {
+          shouldContinue: false as const,
+          reply: { text: "⚠️ Invalid allowlist entry." },
+        };
+      }
+      const deniedText = resolveConfigWriteDeniedText({
+        cfg: params.cfg,
+        channel: params.command.channel,
+        channelId,
+        accountId: params.ctx.AccountId,
+        gatewayClientScopes: params.ctx.GatewayClientScopes,
+        target: editResult.writeTarget,
+      });
+      if (deniedText) {
+        return {
+          shouldContinue: false as const,
+          reply: {
+            text: deniedText,
+          },
+        };
+      }
+      configChanged = editResult.changed;
+      pathLabel = editResult.pathLabel;
+
+      if (configChanged) {
+        const validated = validateConfigObjectWithPlugins(parsedConfig);
+        if (!validated.ok) {
+          const issue = validated.issues[0];
+          return {
+            shouldContinue: false as const,
+            reply: { text: `⚠️ Config invalid after update (${issue.path}: ${issue.message}).` },
+          };
+        }
+        await writeConfigFile(validated.config);
+      }
+      return null;
+    });
+    if (lockedResult) {
+      return lockedResult;
     }
 
     if (!configChanged && !shouldTouchStore) {
@@ -502,7 +517,7 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
     const scopeLabel = parsed.scope === "dm" ? "DM" : "group";
     const locations: string[] = [];
     if (configChanged) {
-      locations.push(editResult.pathLabel);
+      locations.push(pathLabel);
     }
     if (shouldTouchStore) {
       locations.push("pairing store");

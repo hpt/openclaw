@@ -25,6 +25,7 @@ import {
   listAgentEntries,
   pruneAgentConfig,
 } from "../../commands/agents.config.js";
+import { withConfigWriteLock } from "../../config/config-write-lock.js";
 import { loadConfig, writeConfigFile } from "../../config/config.js";
 import { resolveSessionTranscriptsDirForAgent } from "../../config/sessions/paths.js";
 import { sameFileIdentity } from "../../infra/file-identity.js";
@@ -555,7 +556,7 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const cfg = loadConfig();
+    const preliminaryCfg = loadConfig();
     const rawName = String(params.name ?? "").trim();
     const agentId = normalizeAgentId(rawName);
     if (agentId === DEFAULT_AGENT_ID) {
@@ -567,7 +568,7 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    if (findAgentEntryIndex(listAgentEntries(cfg), agentId) >= 0) {
+    if (findAgentEntryIndex(listAgentEntries(preliminaryCfg), agentId) >= 0) {
       respond(
         false,
         undefined,
@@ -578,19 +579,18 @@ export const agentsHandlers: GatewayRequestHandlers = {
 
     const workspaceDir = resolveUserPath(String(params.workspace ?? "").trim());
 
-    // Resolve agentDir against the config we're about to persist (vs the pre-write config),
-    // so subsequent resolutions can't disagree about the agent's directory.
-    let nextConfig = applyAgentConfig(cfg, {
+    // Resolve agentDir against a provisional config so workspace prep paths stay stable.
+    let provisionalConfig = applyAgentConfig(preliminaryCfg, {
       agentId,
       name: rawName,
       workspace: workspaceDir,
     });
-    const agentDir = resolveAgentDir(nextConfig, agentId);
-    nextConfig = applyAgentConfig(nextConfig, { agentId, agentDir });
+    const agentDir = resolveAgentDir(provisionalConfig, agentId);
+    provisionalConfig = applyAgentConfig(provisionalConfig, { agentId, agentDir });
 
     // Ensure workspace & transcripts exist BEFORE writing config so a failure
     // here does not leave a broken config entry behind.
-    const skipBootstrap = Boolean(nextConfig.agents?.defaults?.skipBootstrap);
+    const skipBootstrap = Boolean(provisionalConfig.agents?.defaults?.skipBootstrap);
     await ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles: !skipBootstrap });
     await fs.mkdir(resolveSessionTranscriptsDirForAgent(agentId), { recursive: true });
 
@@ -626,7 +626,28 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    await writeConfigFile(nextConfig);
+    // Fresh config under lock after slow workspace I/O so concurrent writers are preserved.
+    const locked = await withConfigWriteLock(async () => {
+      const cfg = loadConfig();
+      if (findAgentEntryIndex(listAgentEntries(cfg), agentId) >= 0) {
+        return {
+          ok: false as const,
+          error: errorShape(ErrorCodes.INVALID_REQUEST, `agent "${agentId}" already exists`),
+        };
+      }
+      let nextConfig = applyAgentConfig(cfg, {
+        agentId,
+        name: rawName,
+        workspace: workspaceDir,
+      });
+      nextConfig = applyAgentConfig(nextConfig, { agentId, agentDir });
+      await writeConfigFile(nextConfig);
+      return { ok: true as const };
+    });
+    if (!locked.ok) {
+      respond(false, undefined, locked.error);
+      return;
+    }
 
     respond(true, { ok: true, agentId, name: rawName, workspace: workspaceDir }, undefined);
   },
@@ -636,9 +657,9 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const cfg = loadConfig();
+    const preliminaryCfg = loadConfig();
     const agentId = normalizeAgentId(String(params.agentId ?? ""));
-    if (!isConfiguredAgent(cfg, agentId)) {
+    if (!isConfiguredAgent(preliminaryCfg, agentId)) {
       respondAgentNotFound(respond, agentId);
       return;
     }
@@ -650,22 +671,31 @@ export const agentsHandlers: GatewayRequestHandlers = {
 
     const model = resolveOptionalStringParam(params.model);
     const avatar = resolveOptionalStringParam(params.avatar);
-
-    const nextConfig = applyAgentConfig(cfg, {
-      agentId,
-      ...(typeof params.name === "string" && params.name.trim()
-        ? { name: params.name.trim() }
-        : {}),
-      ...(workspaceDir ? { workspace: workspaceDir } : {}),
-      ...(model ? { model } : {}),
-    });
+    const name =
+      typeof params.name === "string" && params.name.trim() ? params.name.trim() : undefined;
 
     if (workspaceDir) {
-      const skipBootstrap = Boolean(nextConfig.agents?.defaults?.skipBootstrap);
+      const provisional = applyAgentConfig(preliminaryCfg, {
+        agentId,
+        ...(name ? { name } : {}),
+        workspace: workspaceDir,
+        ...(model ? { model } : {}),
+      });
+      const skipBootstrap = Boolean(provisional.agents?.defaults?.skipBootstrap);
       await ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles: !skipBootstrap });
     }
 
-    const identityWorkspaceDir = avatar ? resolveAgentWorkspaceDir(nextConfig, agentId) : undefined;
+    const identityWorkspaceDir = avatar
+      ? resolveAgentWorkspaceDir(
+          applyAgentConfig(preliminaryCfg, {
+            agentId,
+            ...(name ? { name } : {}),
+            ...(workspaceDir ? { workspace: workspaceDir } : {}),
+            ...(model ? { model } : {}),
+          }),
+          agentId,
+        )
+      : undefined;
     if (
       identityWorkspaceDir &&
       !(await ensureWorkspaceFileReadyOrRespond({
@@ -694,7 +724,24 @@ export const agentsHandlers: GatewayRequestHandlers = {
       }
     }
 
-    await writeConfigFile(nextConfig);
+    const locked = await withConfigWriteLock(async () => {
+      const cfg = loadConfig();
+      if (!isConfiguredAgent(cfg, agentId)) {
+        return { ok: false as const };
+      }
+      const nextConfig = applyAgentConfig(cfg, {
+        agentId,
+        ...(name ? { name } : {}),
+        ...(workspaceDir ? { workspace: workspaceDir } : {}),
+        ...(model ? { model } : {}),
+      });
+      await writeConfigFile(nextConfig);
+      return { ok: true as const };
+    });
+    if (!locked.ok) {
+      respondAgentNotFound(respond, agentId);
+      return;
+    }
 
     respond(true, { ok: true, agentId }, undefined);
   },
@@ -704,7 +751,6 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const cfg = loadConfig();
     const agentId = normalizeAgentId(String(params.agentId ?? ""));
     if (agentId === DEFAULT_AGENT_ID) {
       respond(
@@ -714,28 +760,41 @@ export const agentsHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    if (!isConfiguredAgent(cfg, agentId)) {
+
+    const deleteFiles = typeof params.deleteFiles === "boolean" ? params.deleteFiles : true;
+
+    const locked = await withConfigWriteLock(async () => {
+      const cfg = loadConfig();
+      if (!isConfiguredAgent(cfg, agentId)) {
+        return { ok: false as const };
+      }
+      const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+      const agentDir = resolveAgentDir(cfg, agentId);
+      const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
+      const result = pruneAgentConfig(cfg, agentId);
+      await writeConfigFile(result.config);
+      return {
+        ok: true as const,
+        removedBindings: result.removedBindings,
+        workspaceDir,
+        agentDir,
+        sessionsDir,
+      };
+    });
+    if (!locked.ok) {
       respondAgentNotFound(respond, agentId);
       return;
     }
 
-    const deleteFiles = typeof params.deleteFiles === "boolean" ? params.deleteFiles : true;
-    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
-    const agentDir = resolveAgentDir(cfg, agentId);
-    const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
-
-    const result = pruneAgentConfig(cfg, agentId);
-    await writeConfigFile(result.config);
-
     if (deleteFiles) {
       await Promise.all([
-        moveToTrashBestEffort(workspaceDir),
-        moveToTrashBestEffort(agentDir),
-        moveToTrashBestEffort(sessionsDir),
+        moveToTrashBestEffort(locked.workspaceDir),
+        moveToTrashBestEffort(locked.agentDir),
+        moveToTrashBestEffort(locked.sessionsDir),
       ]);
     }
 
-    respond(true, { ok: true, agentId, removedBindings: result.removedBindings }, undefined);
+    respond(true, { ok: true, agentId, removedBindings: locked.removedBindings }, undefined);
   },
   "agents.files.list": async ({ params, respond }) => {
     if (!validateAgentsFilesListParams(params)) {
