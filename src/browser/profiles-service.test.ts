@@ -12,6 +12,11 @@ vi.mock("../config/config.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../config/config-write-lock.js", () => ({
+  withConfigWriteLock: async <T>(fn: () => Promise<T>) => await fn(),
+  CONFIG_WRITE_LOCK_OPTIONS: {},
+}));
+
 vi.mock("./trash.js", () => ({
   movePathToTrash: vi.fn(async (targetPath: string) => targetPath),
 }));

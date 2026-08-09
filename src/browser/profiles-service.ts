@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { withConfigWriteLock } from "../config/config-write-lock.js";
 import type { BrowserProfileConfig, OpenClawConfig } from "../config/config.js";
 import { loadConfig, writeConfigFile } from "../config/config.js";
 import { deriveDefaultBrowserCdpPortRange } from "../config/port-defaults.js";
@@ -74,6 +75,56 @@ const cdpPortRange = (resolved: {
   return deriveDefaultBrowserCdpPortRange(resolved.controlPort);
 };
 
+function buildProfileConfig(params: {
+  rawCdpUrl?: string;
+  driver?: "openclaw" | "existing-session";
+  normalizedUserDataDir?: string;
+  profileColor: string;
+  usedPorts: Set<number>;
+  range: { start: number; end: number };
+}): BrowserProfileConfig {
+  const { rawCdpUrl, driver, normalizedUserDataDir, profileColor, usedPorts, range } = params;
+
+  if (rawCdpUrl) {
+    let parsed: ReturnType<typeof parseHttpUrl>;
+    try {
+      parsed = parseHttpUrl(rawCdpUrl, "browser.profiles.cdpUrl");
+    } catch (err) {
+      throw new BrowserValidationError(String(err));
+    }
+    if (driver === "existing-session") {
+      throw new BrowserValidationError(
+        "driver=existing-session does not accept cdpUrl; it attaches via the Chrome MCP auto-connect flow",
+      );
+    }
+    return {
+      cdpUrl: parsed.normalized,
+      ...(driver ? { driver } : {}),
+      color: profileColor,
+    };
+  }
+
+  if (driver === "existing-session") {
+    // existing-session uses Chrome MCP auto-connect; no CDP port needed
+    return {
+      driver,
+      attachOnly: true,
+      ...(normalizedUserDataDir ? { userDataDir: normalizedUserDataDir } : {}),
+      color: profileColor,
+    };
+  }
+
+  const cdpPort = allocateCdpPort(usedPorts, range);
+  if (cdpPort === null) {
+    throw new BrowserResourceExhaustedError("no available CDP ports in range");
+  }
+  return {
+    cdpPort,
+    ...(driver ? { driver } : {}),
+    color: profileColor,
+  };
+}
+
 export function createBrowserProfilesService(ctx: BrowserRouteContext) {
   const listProfiles = async (): Promise<ProfileStatus[]> => {
     return await ctx.listProfiles();
@@ -92,23 +143,6 @@ export function createBrowserProfilesService(ctx: BrowserRouteContext) {
       );
     }
 
-    const state = ctx.state();
-    const resolvedProfiles = state.resolved.profiles;
-    if (name in resolvedProfiles) {
-      throw new BrowserConflictError(`profile "${name}" already exists`);
-    }
-
-    const cfg = loadConfig();
-    const rawProfiles = cfg.browser?.profiles ?? {};
-    if (name in rawProfiles) {
-      throw new BrowserConflictError(`profile "${name}" already exists`);
-    }
-
-    const usedColors = getUsedColors(resolvedProfiles);
-    const profileColor =
-      params.color && HEX_COLOR_RE.test(params.color) ? params.color : allocateColor(usedColors);
-
-    let profileConfig: BrowserProfileConfig;
     if (normalizedUserDataDir && driver !== "existing-session") {
       throw new BrowserValidationError(
         "driver=existing-session is required when userDataDir is provided",
@@ -120,77 +154,67 @@ export function createBrowserProfilesService(ctx: BrowserRouteContext) {
       );
     }
 
-    if (rawCdpUrl) {
-      let parsed: ReturnType<typeof parseHttpUrl>;
-      try {
-        parsed = parseHttpUrl(rawCdpUrl, "browser.profiles.cdpUrl");
-      } catch (err) {
-        throw new BrowserValidationError(String(err));
+    // Re-read under the shared config lock so createMergePatch(disk, staleFullConfig)
+    // cannot wipe concurrent keys while browser profile create races other writers.
+    return await withConfigWriteLock(async () => {
+      const state = ctx.state();
+      const resolvedProfiles = state.resolved.profiles;
+      if (name in resolvedProfiles) {
+        throw new BrowserConflictError(`profile "${name}" already exists`);
       }
-      if (driver === "existing-session") {
-        throw new BrowserValidationError(
-          "driver=existing-session does not accept cdpUrl; it attaches via the Chrome MCP auto-connect flow",
-        );
-      }
-      profileConfig = {
-        cdpUrl: parsed.normalized,
-        ...(driver ? { driver } : {}),
-        color: profileColor,
-      };
-    } else {
-      if (driver === "existing-session") {
-        // existing-session uses Chrome MCP auto-connect; no CDP port needed
-        profileConfig = {
-          driver,
-          attachOnly: true,
-          ...(normalizedUserDataDir ? { userDataDir: normalizedUserDataDir } : {}),
-          color: profileColor,
-        };
-      } else {
-        const usedPorts = getUsedPorts(resolvedProfiles);
-        const range = cdpPortRange(state.resolved);
-        const cdpPort = allocateCdpPort(usedPorts, range);
-        if (cdpPort === null) {
-          throw new BrowserResourceExhaustedError("no available CDP ports in range");
-        }
-        profileConfig = {
-          cdpPort,
-          ...(driver ? { driver } : {}),
-          color: profileColor,
-        };
-      }
-    }
 
-    const nextConfig: OpenClawConfig = {
-      ...cfg,
-      browser: {
-        ...cfg.browser,
-        profiles: {
-          ...rawProfiles,
-          [name]: profileConfig,
+      const cfg = loadConfig();
+      const rawProfiles = cfg.browser?.profiles ?? {};
+      if (name in rawProfiles) {
+        throw new BrowserConflictError(`profile "${name}" already exists`);
+      }
+
+      const usedColors = getUsedColors({ ...resolvedProfiles, ...rawProfiles });
+      const profileColor =
+        params.color && HEX_COLOR_RE.test(params.color) ? params.color : allocateColor(usedColors);
+
+      const usedPorts = getUsedPorts({ ...resolvedProfiles, ...rawProfiles });
+      const range = cdpPortRange(state.resolved);
+      const profileConfig = buildProfileConfig({
+        rawCdpUrl,
+        driver,
+        normalizedUserDataDir,
+        profileColor,
+        usedPorts,
+        range,
+      });
+
+      const nextConfig: OpenClawConfig = {
+        ...cfg,
+        browser: {
+          ...cfg.browser,
+          profiles: {
+            ...rawProfiles,
+            [name]: profileConfig,
+          },
         },
-      },
-    };
+      };
 
-    await writeConfigFile(nextConfig);
+      await writeConfigFile(nextConfig);
 
-    state.resolved.profiles[name] = profileConfig;
-    const resolved = resolveProfile(state.resolved, name);
-    if (!resolved) {
-      throw new BrowserProfileNotFoundError(`profile "${name}" not found after creation`);
-    }
-    const capabilities = getBrowserProfileCapabilities(resolved);
+      state.resolved.profiles[name] = profileConfig;
+      const resolved = resolveProfile(state.resolved, name);
+      if (!resolved) {
+        throw new BrowserProfileNotFoundError(`profile "${name}" not found after creation`);
+      }
+      const capabilities = getBrowserProfileCapabilities(resolved);
 
-    return {
-      ok: true,
-      profile: name,
-      transport: capabilities.usesChromeMcp ? "chrome-mcp" : "cdp",
-      cdpPort: capabilities.usesChromeMcp ? null : resolved.cdpPort,
-      cdpUrl: capabilities.usesChromeMcp ? null : resolved.cdpUrl,
-      userDataDir: resolved.userDataDir ?? null,
-      color: resolved.color,
-      isRemote: !resolved.cdpIsLoopback,
-    };
+      return {
+        ok: true,
+        profile: name,
+        transport: capabilities.usesChromeMcp ? "chrome-mcp" : "cdp",
+        cdpPort: capabilities.usesChromeMcp ? null : resolved.cdpPort,
+        cdpUrl: capabilities.usesChromeMcp ? null : resolved.cdpUrl,
+        userDataDir: resolved.userDataDir ?? null,
+        color: resolved.color,
+        isRemote: !resolved.cdpIsLoopback,
+      };
+    });
   };
 
   const deleteProfile = async (nameRaw: string): Promise<DeleteProfileResult> => {
@@ -203,21 +227,22 @@ export function createBrowserProfilesService(ctx: BrowserRouteContext) {
     }
 
     const state = ctx.state();
-    const cfg = loadConfig();
-    const profiles = cfg.browser?.profiles ?? {};
-    const defaultProfile = cfg.browser?.defaultProfile ?? state.resolved.defaultProfile;
-    if (name === defaultProfile) {
+    const preliminaryCfg = loadConfig();
+    const preliminaryDefault =
+      preliminaryCfg.browser?.defaultProfile ?? state.resolved.defaultProfile;
+    if (name === preliminaryDefault) {
       throw new BrowserValidationError(
         `cannot delete the default profile "${name}"; change browser.defaultProfile first`,
       );
     }
-    if (!(name in profiles)) {
+    if (!(name in (preliminaryCfg.browser?.profiles ?? {})) && !(name in state.resolved.profiles)) {
       throw new BrowserProfileNotFoundError(`profile "${name}" not found`);
     }
 
     let deleted = false;
     const resolved = resolveProfile(state.resolved, name);
 
+    // Stop/trash outside the config lock — these are slow and must not hold openclaw.json.
     if (resolved?.cdpIsLoopback && resolved.driver === "openclaw") {
       try {
         await ctx.forProfile(name).stopRunningBrowser();
@@ -233,19 +258,35 @@ export function createBrowserProfilesService(ctx: BrowserRouteContext) {
       }
     }
 
-    const { [name]: _removed, ...remainingProfiles } = profiles;
-    const nextConfig: OpenClawConfig = {
-      ...cfg,
-      browser: {
-        ...cfg.browser,
-        profiles: remainingProfiles,
-      },
-    };
+    // Fresh disk read under lock after the slow I/O window so concurrent channel/plugin/MCP
+    // writes are not wiped by a stale full-config snapshot from before stop/trash.
+    await withConfigWriteLock(async () => {
+      const cfg = loadConfig();
+      const profiles = cfg.browser?.profiles ?? {};
+      const defaultProfile = cfg.browser?.defaultProfile ?? state.resolved.defaultProfile;
+      if (name === defaultProfile) {
+        throw new BrowserValidationError(
+          `cannot delete the default profile "${name}"; change browser.defaultProfile first`,
+        );
+      }
+      if (!(name in profiles)) {
+        throw new BrowserProfileNotFoundError(`profile "${name}" not found`);
+      }
 
-    await writeConfigFile(nextConfig);
+      const { [name]: _removed, ...remainingProfiles } = profiles;
+      const nextConfig: OpenClawConfig = {
+        ...cfg,
+        browser: {
+          ...cfg.browser,
+          profiles: remainingProfiles,
+        },
+      };
 
-    delete state.resolved.profiles[name];
-    state.profiles.delete(name);
+      await writeConfigFile(nextConfig);
+
+      delete state.resolved.profiles[name];
+      state.profiles.delete(name);
+    });
 
     return { ok: true, profile: name, deleted };
   };
