@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -21,7 +22,6 @@ type LockFilePayload = {
 };
 
 type HeldLock = {
-  count: number;
   handle: fs.FileHandle;
   lockPath: string;
 };
@@ -29,6 +29,14 @@ type HeldLock = {
 const HELD_LOCKS_KEY = Symbol.for("openclaw.fileLockHeldLocks");
 const HELD_LOCKS = resolveProcessScopedMap<HeldLock>(HELD_LOCKS_KEY);
 const CLEANUP_REGISTERED_KEY = Symbol.for("openclaw.fileLockCleanupRegistered");
+
+/**
+ * Tracks which normalized lock paths the current async context already owns.
+ * Re-entry is allowed only within this AsyncLocalStorage context so nested
+ * `withFileLock`/`writeConfigFile` calls work, while concurrent tasks still
+ * contend for the exclusive process-local lock.
+ */
+const LOCK_OWNERSHIP = new AsyncLocalStorage<ReadonlySet<string>>();
 
 function releaseAllLocksSync(): void {
   for (const [normalizedFile, held] of HELD_LOCKS) {
@@ -128,10 +136,6 @@ async function releaseHeldLock(normalizedFile: string): Promise<void> {
   if (!current) {
     return;
   }
-  current.count -= 1;
-  if (current.count > 0) {
-    return;
-  }
   HELD_LOCKS.delete(normalizedFile);
   await current.handle.close().catch(() => undefined);
   await fs.rm(current.lockPath, { force: true }).catch(() => undefined);
@@ -145,7 +149,7 @@ export async function drainFileLockStateForTest(): Promise<void> {
   await drainAllLocks();
 }
 
-/** Acquire a re-entrant process-local file lock backed by a `.lock` sidecar file. */
+/** Acquire an exclusive process-local file lock backed by a `.lock` sidecar file. */
 export async function acquireFileLock(
   filePath: string,
   options: FileLockOptions,
@@ -153,24 +157,26 @@ export async function acquireFileLock(
   ensureExitCleanupRegistered();
   const normalizedFile = await resolveNormalizedFilePath(filePath);
   const lockPath = `${normalizedFile}.lock`;
-  const held = HELD_LOCKS.get(normalizedFile);
-  if (held) {
-    held.count += 1;
-    return {
-      lockPath,
-      release: () => releaseHeldLock(normalizedFile),
-    };
-  }
 
   const attempts = Math.max(1, options.retries.retries + 1);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    // Another async task in this process may already own the lock. Wait rather
+    // than re-entering — re-entry is scoped to AsyncLocalStorage in withFileLock.
+    if (HELD_LOCKS.has(normalizedFile)) {
+      if (attempt >= attempts - 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, computeDelayMs(options.retries, attempt)));
+      continue;
+    }
+
     try {
       const handle = await fs.open(lockPath, "wx");
       await handle.writeFile(
         JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }, null, 2),
         "utf8",
       );
-      HELD_LOCKS.set(normalizedFile, { count: 1, handle, lockPath });
+      HELD_LOCKS.set(normalizedFile, { handle, lockPath });
       return {
         lockPath,
         release: () => releaseHeldLock(normalizedFile),
@@ -194,15 +200,27 @@ export async function acquireFileLock(
   throw new Error(`file lock timeout for ${normalizedFile}`);
 }
 
-/** Run an async callback while holding a file lock, always releasing the lock afterward. */
+/**
+ * Run an async callback while holding a file lock, always releasing afterward.
+ * Nested `withFileLock` calls for the same path in this async context re-enter
+ * without releasing; concurrent tasks still serialize.
+ */
 export async function withFileLock<T>(
   filePath: string,
   options: FileLockOptions,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const lock = await acquireFileLock(filePath, options);
-  try {
+  const normalizedFile = await resolveNormalizedFilePath(filePath);
+  const owned = LOCK_OWNERSHIP.getStore();
+  if (owned?.has(normalizedFile)) {
     return await fn();
+  }
+
+  const lock = await acquireFileLock(filePath, options);
+  const nextOwned = new Set(owned);
+  nextOwned.add(normalizedFile);
+  try {
+    return await LOCK_OWNERSHIP.run(nextOwned, fn);
   } finally {
     await lock.release();
   }

@@ -24,6 +24,7 @@ Docs: https://docs.openclaw.ai
 ### Fixes
 
 - Config/browser profiles: re-read openclaw.json under the shared config write lock for browser profile create/delete, `/allowlist` config edits, `skills.update`, and `agents.create|update|delete`, so `createMergePatch(disk, staleFullConfig)` cannot wipe concurrent channel/plugin/MCP keys during those RMW windows.
+- Infra/file lock: scope same-path `withFileLock` re-entry to the current async context so concurrent same-process writers serialize instead of sharing one process-global hold, which previously let `writeConfigFile` / `withConfigWriteLock` races both read the same disk snapshot and wipe each other.
 - Feishu/dynamic agents: re-read openclaw.json under the shared config write lock before creating per-DM agents/bindings, so concurrent dynamic-agent creates (or other config writers) cannot wipe each other via stale full-config merge-patch array replacement.
 - Memory/builtin sqlite: cut redundant sync and status query churn by snapshotting file state once per source, reusing sync statements, and consolidating status aggregation reads, which reduces builtin memory overhead on sync/status/doctor-style paths. Thanks @vincentkoc.
 - ACP/direct chats: always deliver a terminal ACP result when final TTS does not yield audio, even if block text already streamed earlier, and skip redundant empty-text final synthesis. (#53692) Thanks @w-sss.
