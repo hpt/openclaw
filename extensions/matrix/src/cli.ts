@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { withConfigWriteLock } from "openclaw/plugin-sdk/config-runtime";
 import { resolveMatrixAccount, resolveMatrixAccountConfig } from "./matrix/accounts.js";
 import { withResolvedActionClient, withStartedActionClient } from "./matrix/actions/client.js";
 import { listMatrixOwnDevices, pruneMatrixStaleGatewayDevices } from "./matrix/actions/devices.js";
@@ -240,11 +241,13 @@ async function addMatrixAccount(params: {
       });
       let resolvedAvatarUrl = synced.resolvedAvatarUrl;
       if (synced.convertedAvatarFromHttp && synced.resolvedAvatarUrl) {
-        const latestCfg = runtime.config.loadConfig() as CoreConfig;
-        const withAvatar = updateMatrixAccountConfig(latestCfg, accountId, {
-          avatarUrl: synced.resolvedAvatarUrl,
+        await withConfigWriteLock(async () => {
+          const latestCfg = runtime.config.loadConfig() as CoreConfig;
+          const withAvatar = updateMatrixAccountConfig(latestCfg, accountId, {
+            avatarUrl: synced.resolvedAvatarUrl,
+          });
+          await runtime.config.writeConfigFile(withAvatar as never);
         });
-        await runtime.config.writeConfigFile(withAvatar as never);
         resolvedAvatarUrl = synced.resolvedAvatarUrl;
       }
       profile = {

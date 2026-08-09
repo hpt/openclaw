@@ -1,3 +1,4 @@
+import { withConfigWriteLock } from "openclaw/plugin-sdk/config-runtime";
 import { updateMatrixOwnProfile } from "./matrix/actions/profile.js";
 import { updateMatrixAccountConfig, resolveMatrixConfigPath } from "./matrix/config-update.js";
 import { normalizeAccountId } from "./runtime-api.js";
@@ -27,7 +28,6 @@ export async function applyMatrixProfileUpdate(params: {
   mediaLocalRoots?: readonly string[];
 }): Promise<MatrixProfileUpdateResult> {
   const runtime = getMatrixRuntime();
-  const persistedCfg = runtime.config.loadConfig() as CoreConfig;
   const accountId = normalizeAccountId(params.account);
   const displayName = params.displayName?.trim() || null;
   const avatarUrl = params.avatarUrl?.trim() || null;
@@ -36,6 +36,8 @@ export async function applyMatrixProfileUpdate(params: {
     throw new Error("Provide name/displayName and/or avatarUrl/avatarPath.");
   }
 
+  // Network/profile sync is slow — keep it outside the config lock so we do not
+  // hold openclaw.json across Matrix API / media upload I/O.
   const synced = await updateMatrixOwnProfile({
     cfg: params.cfg,
     accountId,
@@ -46,23 +48,29 @@ export async function applyMatrixProfileUpdate(params: {
   });
   const persistedAvatarUrl =
     synced.uploadedAvatarSource && synced.resolvedAvatarUrl ? synced.resolvedAvatarUrl : avatarUrl;
-  const updated = updateMatrixAccountConfig(persistedCfg, accountId, {
-    name: displayName ?? undefined,
-    avatarUrl: persistedAvatarUrl ?? undefined,
-  });
-  await runtime.config.writeConfigFile(updated as never);
 
-  return {
-    accountId,
-    displayName,
-    avatarUrl: persistedAvatarUrl ?? null,
-    profile: {
-      displayNameUpdated: synced.displayNameUpdated,
-      avatarUpdated: synced.avatarUpdated,
-      resolvedAvatarUrl: synced.resolvedAvatarUrl,
-      uploadedAvatarSource: synced.uploadedAvatarSource,
-      convertedAvatarFromHttp: synced.convertedAvatarFromHttp,
-    },
-    configPath: resolveMatrixConfigPath(updated, accountId),
-  };
+  // Fresh disk read under the shared lock after the slow sync window so concurrent
+  // channel/plugin/MCP writes are not wiped by createMergePatch(disk, staleFullConfig).
+  return await withConfigWriteLock(async () => {
+    const persistedCfg = runtime.config.loadConfig() as CoreConfig;
+    const updated = updateMatrixAccountConfig(persistedCfg, accountId, {
+      name: displayName ?? undefined,
+      avatarUrl: persistedAvatarUrl ?? undefined,
+    });
+    await runtime.config.writeConfigFile(updated as never);
+
+    return {
+      accountId,
+      displayName,
+      avatarUrl: persistedAvatarUrl ?? null,
+      profile: {
+        displayNameUpdated: synced.displayNameUpdated,
+        avatarUpdated: synced.avatarUpdated,
+        resolvedAvatarUrl: synced.resolvedAvatarUrl,
+        uploadedAvatarSource: synced.uploadedAvatarSource,
+        convertedAvatarFromHttp: synced.convertedAvatarFromHttp,
+      },
+      configPath: resolveMatrixConfigPath(updated, accountId),
+    };
+  });
 }

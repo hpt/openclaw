@@ -8,6 +8,7 @@ import { installSkill } from "../../agents/skills-install.js";
 import { buildWorkspaceSkillStatus } from "../../agents/skills-status.js";
 import { loadWorkspaceSkillEntries, type SkillEntry } from "../../agents/skills.js";
 import { listAgentWorkspaceDirs } from "../../agents/workspace-dirs.js";
+import { withConfigWriteLock } from "../../config/config-write-lock.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { loadConfig, writeConfigFile } from "../../config/config.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
@@ -241,44 +242,49 @@ export const skillsHandlers: GatewayRequestHandlers = {
       apiKey?: string;
       env?: Record<string, string>;
     };
-    const cfg = loadConfig();
-    const skills = cfg.skills ? { ...cfg.skills } : {};
-    const entries = skills.entries ? { ...skills.entries } : {};
-    const current = entries[p.skillKey] ? { ...entries[p.skillKey] } : {};
-    if (typeof p.enabled === "boolean") {
-      current.enabled = p.enabled;
-    }
-    if (typeof p.apiKey === "string") {
-      const trimmed = normalizeSecretInput(p.apiKey);
-      if (trimmed) {
-        current.apiKey = trimmed;
-      } else {
-        delete current.apiKey;
+    // Fresh load under the shared config lock so skills.update cannot wipe
+    // concurrent channel/plugin/MCP keys via createMergePatch(disk, stale).
+    const current = await withConfigWriteLock(async () => {
+      const cfg = loadConfig();
+      const skills = cfg.skills ? { ...cfg.skills } : {};
+      const entries = skills.entries ? { ...skills.entries } : {};
+      const nextEntry = entries[p.skillKey] ? { ...entries[p.skillKey] } : {};
+      if (typeof p.enabled === "boolean") {
+        nextEntry.enabled = p.enabled;
       }
-    }
-    if (p.env && typeof p.env === "object") {
-      const nextEnv = current.env ? { ...current.env } : {};
-      for (const [key, value] of Object.entries(p.env)) {
-        const trimmedKey = key.trim();
-        if (!trimmedKey) {
-          continue;
-        }
-        const trimmedVal = value.trim();
-        if (!trimmedVal) {
-          delete nextEnv[trimmedKey];
+      if (typeof p.apiKey === "string") {
+        const trimmed = normalizeSecretInput(p.apiKey);
+        if (trimmed) {
+          nextEntry.apiKey = trimmed;
         } else {
-          nextEnv[trimmedKey] = trimmedVal;
+          delete nextEntry.apiKey;
         }
       }
-      current.env = nextEnv;
-    }
-    entries[p.skillKey] = current;
-    skills.entries = entries;
-    const nextConfig: OpenClawConfig = {
-      ...cfg,
-      skills,
-    };
-    await writeConfigFile(nextConfig);
+      if (p.env && typeof p.env === "object") {
+        const nextEnv = nextEntry.env ? { ...nextEntry.env } : {};
+        for (const [key, value] of Object.entries(p.env)) {
+          const trimmedKey = key.trim();
+          if (!trimmedKey) {
+            continue;
+          }
+          const trimmedVal = value.trim();
+          if (!trimmedVal) {
+            delete nextEnv[trimmedKey];
+          } else {
+            nextEnv[trimmedKey] = trimmedVal;
+          }
+        }
+        nextEntry.env = nextEnv;
+      }
+      entries[p.skillKey] = nextEntry;
+      skills.entries = entries;
+      const nextConfig: OpenClawConfig = {
+        ...cfg,
+        skills,
+      };
+      await writeConfigFile(nextConfig);
+      return nextEntry;
+    });
     respond(true, { ok: true, skillKey: p.skillKey, config: current }, undefined);
   },
 };

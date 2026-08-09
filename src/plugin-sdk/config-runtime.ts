@@ -7,6 +7,7 @@ export {
   readConfigFileSnapshotForWrite,
   writeConfigFile,
 } from "../config/io.js";
+export { withConfigWriteLock } from "../config/config-write-lock.js";
 export { logConfigUpdated } from "../config/logging.js";
 export { updateConfig } from "../commands/models/shared.js";
 export { resolveChannelModelOverride } from "../channels/model-overrides.js";

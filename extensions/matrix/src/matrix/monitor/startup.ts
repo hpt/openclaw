@@ -1,3 +1,4 @@
+import { withConfigWriteLock } from "openclaw/plugin-sdk/config-runtime";
 import type { RuntimeLogger } from "../../runtime-api.js";
 import type { CoreConfig, MatrixConfig } from "../../types.js";
 import type { MatrixAuth } from "../client.js";
@@ -55,11 +56,14 @@ export async function runMatrixStartupMaintenance(params: {
       profileSync.resolvedAvatarUrl &&
       params.accountConfig.avatarUrl !== profileSync.resolvedAvatarUrl
     ) {
-      const latestCfg = params.loadConfig();
-      const updatedCfg = updateMatrixAccountConfig(latestCfg, params.accountId, {
-        avatarUrl: profileSync.resolvedAvatarUrl,
+      // Fresh under lock after profile sync so concurrent writers are not wiped.
+      await withConfigWriteLock(async () => {
+        const latestCfg = params.loadConfig();
+        const updatedCfg = updateMatrixAccountConfig(latestCfg, params.accountId, {
+          avatarUrl: profileSync.resolvedAvatarUrl,
+        });
+        await params.writeConfigFile(updatedCfg as never);
       });
-      await params.writeConfigFile(updatedCfg as never);
       params.logVerboseMessage(
         `matrix: persisted converted avatar URL for account ${params.accountId} (${profileSync.resolvedAvatarUrl})`,
       );
