@@ -5,6 +5,7 @@ import {
   CONFIG_PATH,
   loadConfig,
   readConfigFileSnapshot,
+  readConfigFileSnapshotForWrite,
   resolveGatewayPort,
   validateConfigObjectWithPlugins,
   writeConfigFile,
@@ -197,16 +198,24 @@ export async function runGmailSetup(opts: GmailSetupOptions) {
     true,
   );
 
+  // GCP/Tailscale setup is slow — re-read disk after it so createMergePatch cannot
+  // wipe concurrent gateway/channel/plugin writes held in the pre-setup snapshot.
+  const { snapshot: freshSnapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+  if (!freshSnapshot.valid) {
+    throw new Error(`Config invalid: ${CONFIG_PATH}`);
+  }
+  const freshConfig = freshSnapshot.config;
+
   const nextConfig: OpenClawConfig = {
-    ...baseConfig,
+    ...freshConfig,
     hooks: {
-      ...baseConfig.hooks,
+      ...freshConfig.hooks,
       enabled: true,
       path: hooksPath,
       token: hookToken,
-      presets: mergeHookPresets(baseConfig.hooks?.presets, "gmail"),
+      presets: mergeHookPresets(freshConfig.hooks?.presets, "gmail"),
       gmail: {
-        ...baseConfig.hooks?.gmail,
+        ...freshConfig.hooks?.gmail,
         account: opts.account,
         label,
         topic: topicPath,
@@ -217,13 +226,13 @@ export async function runGmailSetup(opts: GmailSetupOptions) {
         maxBytes,
         renewEveryMinutes,
         serve: {
-          ...baseConfig.hooks?.gmail?.serve,
+          ...freshConfig.hooks?.gmail?.serve,
           bind: serveBind,
           port: servePort,
           path: servePath,
         },
         tailscale: {
-          ...baseConfig.hooks?.gmail?.tailscale,
+          ...freshConfig.hooks?.gmail?.tailscale,
           mode: tailscaleMode,
           path: tailscalePath,
           target: normalizedTailscaleTarget,
@@ -236,7 +245,7 @@ export async function runGmailSetup(opts: GmailSetupOptions) {
   if (!validated.ok) {
     throw new Error(`Config validation failed: ${validated.issues[0]?.message ?? "invalid"}`);
   }
-  await writeConfigFile(validated.config);
+  await writeConfigFile(validated.config, writeOptions);
 
   const summary = {
     projectId,
