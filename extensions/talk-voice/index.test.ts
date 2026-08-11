@@ -1,6 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginCommandDefinition } from "../../test/helpers/extensions/plugin-command.js";
 import { createPluginRuntimeMock } from "../../test/helpers/extensions/plugin-runtime-mock.js";
+
+const readConfigFileSnapshotForWrite = vi.fn();
+const writeConfigFile = vi.fn();
+
+vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
+  return {
+    ...actual,
+    readConfigFileSnapshotForWrite,
+    writeConfigFile,
+  };
+});
+
 import register from "./index.js";
 
 function createHarness(config: Record<string, unknown>) {
@@ -42,6 +55,12 @@ function createCommandContext(args: string, channel: string = "discord") {
 }
 
 describe("talk-voice plugin", () => {
+  beforeEach(() => {
+    readConfigFileSnapshotForWrite.mockReset();
+    writeConfigFile.mockReset();
+    writeConfigFile.mockResolvedValue(undefined);
+  });
+
   it("reports active provider status", async () => {
     const { command } = createHarness({
       talk: {
@@ -155,21 +174,40 @@ describe("talk-voice plugin", () => {
       },
     });
     vi.mocked(runtime.tts.listVoices).mockResolvedValue([{ id: "voice-a", name: "Claudia" }]);
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        config: {
+          talk: {
+            provider: "elevenlabs",
+            providers: {
+              elevenlabs: {
+                apiKey: "sk-eleven",
+              },
+            },
+          },
+        },
+      },
+      writeOptions: { expectedConfigPath: "/tmp/openclaw.json" },
+    });
 
     const result = await command.handler(createCommandContext("set Claudia"));
 
-    expect(runtime.config.writeConfigFile).toHaveBeenCalledWith({
-      talk: {
-        provider: "elevenlabs",
-        providers: {
-          elevenlabs: {
-            apiKey: "sk-eleven",
-            voiceId: "voice-a",
+    expect(writeConfigFile).toHaveBeenCalledWith(
+      {
+        talk: {
+          provider: "elevenlabs",
+          providers: {
+            elevenlabs: {
+              apiKey: "sk-eleven",
+              voiceId: "voice-a",
+            },
           },
+          voiceId: "voice-a",
         },
-        voiceId: "voice-a",
       },
-    });
+      { expectedConfigPath: "/tmp/openclaw.json" },
+    );
+    expect(runtime.config.writeConfigFile).not.toHaveBeenCalled();
     expect(result).toEqual({
       text: "✅ ElevenLabs Talk voice set to Claudia\nvoice-a",
     });
@@ -185,19 +223,92 @@ describe("talk-voice plugin", () => {
       },
     });
     vi.mocked(runtime.tts.listVoices).mockResolvedValue([{ id: "en-US-AvaNeural", name: "Ava" }]);
-
-    await command.handler(createCommandContext("set Ava"));
-
-    expect(runtime.config.writeConfigFile).toHaveBeenCalledWith({
-      talk: {
-        provider: "microsoft",
-        providers: {
-          microsoft: {
-            voiceId: "en-US-AvaNeural",
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        config: {
+          talk: {
+            provider: "microsoft",
+            providers: {
+              microsoft: {},
+            },
           },
         },
       },
+      writeOptions: {},
     });
+
+    await command.handler(createCommandContext("set Ava"));
+
+    expect(writeConfigFile).toHaveBeenCalledWith(
+      {
+        talk: {
+          provider: "microsoft",
+          providers: {
+            microsoft: {
+              voiceId: "en-US-AvaNeural",
+            },
+          },
+        },
+      },
+      {},
+    );
+  });
+
+  it("re-reads config after listVoices so concurrent channel keys are preserved", async () => {
+    const staleAtCommandStart = {
+      talk: {
+        provider: "elevenlabs",
+        providers: {
+          elevenlabs: {
+            apiKey: "sk-eleven",
+          },
+        },
+      },
+    };
+    const { command, runtime } = createHarness(staleAtCommandStart);
+    vi.mocked(runtime.tts.listVoices).mockImplementation(async () => {
+      // Simulate a concurrent writer during the voice-list network gap.
+      return [{ id: "voice-a", name: "Claudia" }];
+    });
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        config: {
+          ...staleAtCommandStart,
+          channels: {
+            telegram: { botToken: "123:ABC" },
+          },
+          plugins: {
+            entries: { "talk-voice": { enabled: true } },
+          },
+        },
+      },
+      writeOptions: {},
+    });
+
+    await command.handler(createCommandContext("set Claudia"));
+
+    expect(readConfigFileSnapshotForWrite).toHaveBeenCalledTimes(1);
+    expect(writeConfigFile).toHaveBeenCalledWith(
+      {
+        talk: {
+          provider: "elevenlabs",
+          providers: {
+            elevenlabs: {
+              apiKey: "sk-eleven",
+              voiceId: "voice-a",
+            },
+          },
+          voiceId: "voice-a",
+        },
+        channels: {
+          telegram: { botToken: "123:ABC" },
+        },
+        plugins: {
+          entries: { "talk-voice": { enabled: true } },
+        },
+      },
+      {},
+    );
   });
 
   it("returns provider lookup errors cleanly", async () => {
@@ -218,5 +329,6 @@ describe("talk-voice plugin", () => {
     expect(result).toEqual({
       text: "Microsoft voice list failed: speech provider microsoft does not support voice listing",
     });
+    expect(writeConfigFile).not.toHaveBeenCalled();
   });
 });
