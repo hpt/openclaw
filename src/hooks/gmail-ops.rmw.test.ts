@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const readConfigFileSnapshot = vi.fn();
-const readConfigFileSnapshotForWrite = vi.fn();
-const writeConfigFile = vi.fn();
-const validateConfigObjectWithPlugins = vi.fn();
+const {
+  readConfigFileSnapshot,
+  readConfigFileSnapshotForWrite,
+  writeConfigFile,
+  validateConfigObjectWithPlugins,
+} = vi.hoisted(() => ({
+  readConfigFileSnapshot: vi.fn(),
+  readConfigFileSnapshotForWrite: vi.fn(),
+  writeConfigFile: vi.fn(),
+  validateConfigObjectWithPlugins: vi.fn(),
+}));
 
 vi.mock("../config/config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../config/config.js")>();

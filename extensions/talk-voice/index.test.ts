@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginCommandDefinition } from "../../test/helpers/extensions/plugin-command.js";
 import { createPluginRuntimeMock } from "../../test/helpers/extensions/plugin-runtime-mock.js";
 
-const readConfigFileSnapshotForWrite = vi.fn();
-const writeConfigFile = vi.fn();
+const { readConfigFileSnapshotForWrite, writeConfigFile } = vi.hoisted(() => ({
+  readConfigFileSnapshotForWrite: vi.fn(),
+  writeConfigFile: vi.fn(),
+}));
 
 vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
