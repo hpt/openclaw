@@ -1,4 +1,8 @@
-import { resolveActiveTalkProviderConfig } from "openclaw/plugin-sdk/config-runtime";
+import {
+  readConfigFileSnapshotForWrite,
+  resolveActiveTalkProviderConfig,
+  writeConfigFile,
+} from "openclaw/plugin-sdk/config-runtime";
 import type { SpeechVoiceOption } from "openclaw/plugin-sdk/speech";
 import { definePluginEntry, type OpenClawPluginApi } from "./api.js";
 
@@ -186,22 +190,26 @@ export default definePluginEntry({
             return { text: `No voice found for ${hint}. Try: ${commandLabel} list` };
           }
 
+          // listVoices is slow network I/O — re-read disk after it so createMergePatch
+          // cannot wipe concurrent channel/plugin/MCP keys from a stale full snapshot.
+          const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+          const freshCfg = snapshot.config;
           const nextConfig = {
-            ...cfg,
+            ...freshCfg,
             talk: {
-              ...cfg.talk,
+              ...freshCfg.talk,
               provider: providerId,
               providers: {
-                ...(cfg.talk?.providers ?? {}),
+                ...(freshCfg.talk?.providers ?? {}),
                 [providerId]: {
-                  ...(cfg.talk?.providers?.[providerId] ?? {}),
+                  ...(freshCfg.talk?.providers?.[providerId] ?? {}),
                   voiceId: chosen.id,
                 },
               },
               ...(providerId === "elevenlabs" ? { voiceId: chosen.id } : {}),
             },
           };
-          await api.runtime.config.writeConfigFile(nextConfig);
+          await writeConfigFile(nextConfig, writeOptions);
 
           const name = (chosen.name ?? "").trim() || "(unnamed)";
           return { text: `✅ ${providerLabel} Talk voice set to ${name}\n${chosen.id}` };

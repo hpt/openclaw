@@ -23,6 +23,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Talk/voice + Gmail hooks: re-read `openclaw.json` after slow voice-list / GCP setup I/O before `writeConfigFile`, so concurrent channel/plugin/MCP keys are not wiped by stale full-config merge-patch writes.
 - Memory/builtin sqlite: cut redundant sync and status query churn by snapshotting file state once per source, reusing sync statements, and consolidating status aggregation reads, which reduces builtin memory overhead on sync/status/doctor-style paths. Thanks @vincentkoc.
 - ACP/direct chats: always deliver a terminal ACP result when final TTS does not yield audio, even if block text already streamed earlier, and skip redundant empty-text final synthesis. (#53692) Thanks @w-sss.
 - Doctor/image generation: seed migrated legacy Nano Banana Google provider config with the `/v1beta` API root and an empty model list so `openclaw doctor --fix` completes and the migrated native Google image path keeps hitting the correct endpoint. (#53757) Thanks @mahopan.
@@ -43,6 +44,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/ports: parse Docker Compose-style `OPENCLAW_GATEWAY_PORT` host publish values correctly without reviving the legacy `CLAWDBOT_GATEWAY_PORT` override. (#44083) Thanks @bebule.
 - Feishu/MSTeams message tool: keep provider-native `card` payloads optional in merged tool schemas so media-only sends stop failing validation before channel runtime dispatch. (#53715) Thanks @lndyzwdxhs.
 - Feishu/startup: keep `requireMention` enforcement strict when bot identity startup probes fail, raise the startup bot-info timeout to 30s, and add cancellable background identity recovery so mention-gated groups recover without noisy fallback. (#43788) Thanks @lefarcen.
+- Talk/voice + Gmail hooks: re-read `openclaw.json` after slow voice-list / GCP setup I/O before `writeConfigFile`, so concurrent channel/plugin/MCP keys are not wiped by stale full-config merge-patch writes.
 
 ## 2026.3.23
 
