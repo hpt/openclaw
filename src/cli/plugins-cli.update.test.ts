@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   loadConfig,
+  readConfigFileSnapshotForWrite,
   resetPluginsCliTestState,
   runPluginsCommand,
   runtimeErrors,
@@ -46,6 +47,10 @@ describe("plugins cli update", () => {
     } as OpenClawConfig;
 
     loadConfig.mockReturnValue(cfg);
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: { valid: true, config: cfg },
+      writeOptions: { expectedConfigPath: "/tmp/openclaw-config.json5" },
+    });
     updateNpmInstalledPlugins.mockResolvedValue({
       config: cfg,
       changed: false,
@@ -71,7 +76,20 @@ describe("plugins cli update", () => {
         hookIds: ["demo-hooks"],
       }),
     );
-    expect(writeConfigFile).toHaveBeenCalledWith(nextConfig);
+    expect(writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hooks: expect.objectContaining({
+          internal: expect.objectContaining({
+            installs: expect.objectContaining({
+              "demo-hooks": expect.objectContaining({
+                spec: "@acme/demo-hooks@1.1.0",
+              }),
+            }),
+          }),
+        }),
+      }),
+      { expectedConfigPath: "/tmp/openclaw-config.json5" },
+    );
     expect(
       runtimeLogs.some((line) => line.includes("Restart the gateway to load plugins and hooks.")),
     ).toBe(true);
@@ -260,6 +278,10 @@ describe("plugins cli update", () => {
       },
     } as OpenClawConfig;
     loadConfig.mockReturnValue(cfg);
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: { valid: true, config: cfg },
+      writeOptions: { expectedConfigPath: "/tmp/openclaw-config.json5" },
+    });
     updateNpmInstalledPlugins.mockResolvedValue({
       outcomes: [{ status: "ok", message: "Updated alpha -> 1.1.0" }],
       changed: true,
@@ -280,9 +302,92 @@ describe("plugins cli update", () => {
         dryRun: false,
       }),
     );
-    expect(writeConfigFile).toHaveBeenCalledWith(nextConfig);
+    expect(writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plugins: expect.objectContaining({
+          installs: expect.objectContaining({
+            alpha: expect.objectContaining({
+              spec: "@openclaw/alpha@1.1.0",
+            }),
+          }),
+        }),
+      }),
+      { expectedConfigPath: "/tmp/openclaw-config.json5" },
+    );
     expect(
       runtimeLogs.some((line) => line.includes("Restart the gateway to load plugins and hooks.")),
     ).toBe(true);
+  });
+
+  it("re-reads config after npm update so concurrent channel keys survive the write", async () => {
+    const baselineInstall = {
+      source: "npm" as const,
+      spec: "@openclaw/alpha@1.0.0",
+    };
+    const updatedInstall = {
+      source: "npm" as const,
+      spec: "@openclaw/alpha@1.1.0",
+      version: "1.1.0",
+    };
+    const cfg = {
+      plugins: {
+        installs: {
+          alpha: baselineInstall,
+        },
+      },
+    } as OpenClawConfig;
+    const staleUpdated = {
+      plugins: {
+        installs: {
+          alpha: updatedInstall,
+        },
+      },
+    } as OpenClawConfig;
+    const freshWithConcurrentChannel = {
+      plugins: {
+        installs: {
+          alpha: baselineInstall,
+        },
+      },
+      channels: {
+        telegram: { botToken: "123:ABC" },
+      },
+      mcp: {
+        servers: {
+          memory: { command: "uvx", args: ["mcp-memory"] },
+        },
+      },
+    } as OpenClawConfig;
+
+    loadConfig.mockReturnValue(cfg);
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: { valid: true, config: freshWithConcurrentChannel },
+      writeOptions: { expectedConfigPath: "/tmp/openclaw-config.json5" },
+    });
+    updateNpmInstalledPlugins.mockResolvedValue({
+      outcomes: [{ status: "updated", message: "Updated alpha -> 1.1.0" }],
+      changed: true,
+      config: staleUpdated,
+    });
+    updateNpmInstalledHookPacks.mockResolvedValue({
+      outcomes: [],
+      changed: false,
+      config: staleUpdated,
+    });
+
+    await runPluginsCommand(["plugins", "update", "alpha"]);
+
+    expect(readConfigFileSnapshotForWrite).toHaveBeenCalledTimes(1);
+    const [written, writeOptions] = writeConfigFile.mock.calls[0] as [
+      OpenClawConfig,
+      { expectedConfigPath?: string },
+    ];
+    expect(written.plugins?.installs?.alpha).toEqual(updatedInstall);
+    expect(written.channels?.telegram).toEqual({ botToken: "123:ABC" });
+    expect(written.mcp?.servers?.memory).toEqual({
+      command: "uvx",
+      args: ["mcp-memory"],
+    });
+    expect(writeOptions).toEqual({ expectedConfigPath: "/tmp/openclaw-config.json5" });
   });
 });

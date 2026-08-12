@@ -131,7 +131,9 @@ describe("plugins cli install", () => {
     await runPluginsCommand(["plugins", "install", "alpha", "--marketplace", "local/repo"]);
 
     expect(clearPluginManifestRegistryCache).toHaveBeenCalledTimes(1);
-    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg);
+    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg, {
+      expectedConfigPath: "/tmp/openclaw-config.json5",
+    });
     expect(runtimeLogs.some((line) => line.includes("slot adjusted"))).toBe(true);
     expect(runtimeLogs.some((line) => line.includes("Installed plugin: alpha"))).toBe(true);
   });
@@ -212,7 +214,9 @@ describe("plugins cli install", () => {
         clawhubChannel: "official",
       }),
     );
-    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg);
+    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg, {
+      expectedConfigPath: "/tmp/openclaw-config.json5",
+    });
     expect(runtimeLogs.some((line) => line.includes("Installed plugin: demo"))).toBe(true);
     expect(installPluginFromNpmSpec).not.toHaveBeenCalled();
   });
@@ -280,7 +284,9 @@ describe("plugins cli install", () => {
       }),
     );
     expect(installPluginFromNpmSpec).not.toHaveBeenCalled();
-    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg);
+    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg, {
+      expectedConfigPath: "/tmp/openclaw-config.json5",
+    });
   });
 
   it("falls back to npm when ClawHub does not have the package", async () => {
@@ -403,7 +409,9 @@ describe("plugins cli install", () => {
         hooks: ["command-audit"],
       }),
     );
-    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg);
+    expect(writeConfigFile).toHaveBeenCalledWith(installedCfg, {
+      expectedConfigPath: "/tmp/openclaw-config.json5",
+    });
     expect(runtimeLogs.some((line) => line.includes("Installed hook pack: demo-hooks"))).toBe(true);
   });
 });

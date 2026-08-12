@@ -7,6 +7,7 @@ import {
 import { doctorCommand } from "../../commands/doctor.js";
 import {
   readConfigFileSnapshot,
+  readConfigFileSnapshotForWrite,
   resolveGatewayPort,
   writeConfigFile,
 } from "../../config/config.js";
@@ -34,6 +35,7 @@ import {
   resolveGlobalPackageRoot,
 } from "../../infra/update-global.js";
 import { runGatewayUpdate, type UpdateRunResult } from "../../infra/update-runner.js";
+import { mergePluginUpdateConfigOntoFresh } from "../../plugins/merge-config-after-update.js";
 import { syncPluginsForUpdateChannel, updateNpmInstalledPlugins } from "../../plugins/update.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -515,7 +517,18 @@ async function updatePluginsAfterCoreUpdate(params: {
   pluginConfig = npmResult.config;
 
   if (syncResult.changed || npmResult.changed) {
-    await writeConfigFile(pluginConfig);
+    // Channel sync + npm plugin updates are slow — re-read disk afterward so
+    // createMergePatch cannot wipe concurrent channel/MCP keys from the
+    // pre-update snapshot.
+    const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+    const next = snapshot.valid
+      ? mergePluginUpdateConfigOntoFresh({
+          baseline: params.configSnapshot.config,
+          updated: pluginConfig,
+          fresh: snapshot.config,
+        })
+      : pluginConfig;
+    await writeConfigFile(next, writeOptions);
   }
 
   if (params.opts.json) {
