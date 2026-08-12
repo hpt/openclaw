@@ -1,5 +1,5 @@
 import type { OpenClawConfig } from "../config/config.js";
-import { writeConfigFile } from "../config/config.js";
+import { readConfigFileSnapshotForWrite, writeConfigFile } from "../config/config.js";
 import { type HookInstallUpdate, recordHookInstall } from "../hooks/installs.js";
 import { enablePluginInConfig } from "../plugins/enable.js";
 import { type PluginInstallUpdate, recordPluginInstall } from "../plugins/installs.js";
@@ -19,14 +19,20 @@ export async function persistPluginInstall(params: {
   successMessage?: string;
   warningMessage?: string;
 }): Promise<OpenClawConfig> {
-  let next = enablePluginInConfig(params.config, params.pluginId).config;
+  // Install I/O (npm/marketplace download) happens before this persist call.
+  // Re-read disk so createMergePatch cannot wipe concurrent channel/MCP keys
+  // from the pre-install snapshot. Fall back to params.config when the on-disk
+  // snapshot is invalid (e.g. Matrix recovery cleanup still only in memory).
+  const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+  const base = snapshot.valid ? snapshot.config : params.config;
+  let next = enablePluginInConfig(base, params.pluginId).config;
   next = recordPluginInstall(next, {
     pluginId: params.pluginId,
     ...params.install,
   });
   const slotResult = applySlotSelectionForPlugin(next, params.pluginId);
   next = slotResult.config;
-  await writeConfigFile(next);
+  await writeConfigFile(next, writeOptions);
   logSlotWarnings(slotResult.warnings);
   if (params.warningMessage) {
     defaultRuntime.log(theme.warn(params.warningMessage));
@@ -43,13 +49,15 @@ export async function persistHookPackInstall(params: {
   install: Omit<HookInstallUpdate, "hookId" | "hooks">;
   successMessage?: string;
 }): Promise<OpenClawConfig> {
-  let next = enableInternalHookEntries(params.config, params.hooks);
+  const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+  const base = snapshot.valid ? snapshot.config : params.config;
+  let next = enableInternalHookEntries(base, params.hooks);
   next = recordHookInstall(next, {
     hookId: params.hookPackId,
     hooks: params.hooks,
     ...params.install,
   });
-  await writeConfigFile(next);
+  await writeConfigFile(next, writeOptions);
   defaultRuntime.log(params.successMessage ?? `Installed hook pack: ${params.hookPackId}`);
   logHookPackRestartHint();
   return next;

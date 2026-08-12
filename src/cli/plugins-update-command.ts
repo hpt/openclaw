@@ -1,8 +1,9 @@
-import { loadConfig, writeConfigFile } from "../config/config.js";
+import { loadConfig, readConfigFileSnapshotForWrite, writeConfigFile } from "../config/config.js";
 import type { HookInstallRecord } from "../config/types.hooks.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { updateNpmInstalledHookPacks } from "../hooks/update.js";
 import { parseRegistryNpmSpec } from "../infra/npm-registry-spec.js";
+import { mergePluginUpdateConfigOntoFresh } from "../plugins/merge-config-after-update.js";
 import { updateNpmInstalledPlugins } from "../plugins/update.js";
 import { defaultRuntime } from "../runtime.js";
 import { theme } from "../terminal/theme.js";
@@ -184,7 +185,18 @@ export async function runPluginUpdateCommand(params: {
   }
 
   if (!params.opts.dryRun && (pluginResult.changed || hookResult.changed)) {
-    await writeConfigFile(hookResult.config);
+    // npm/marketplace updates are slow — re-read disk after them so
+    // createMergePatch cannot wipe concurrent channel/MCP/plugin keys from a
+    // stale full-config snapshot taken before the update I/O.
+    const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+    const next = snapshot.valid
+      ? mergePluginUpdateConfigOntoFresh({
+          baseline: cfg,
+          updated: hookResult.config,
+          fresh: snapshot.config,
+        })
+      : hookResult.config;
+    await writeConfigFile(next, writeOptions);
     defaultRuntime.log("Restart the gateway to load plugins and hooks.");
   }
 }
