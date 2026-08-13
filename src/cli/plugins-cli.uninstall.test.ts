@@ -5,6 +5,7 @@ import {
   loadConfig,
   parseClawHubPluginSpec,
   promptYesNo,
+  readConfigFileSnapshotForWrite,
   resetPluginsCliTestState,
   runPluginsCommand,
   runtimeErrors,
@@ -62,7 +63,7 @@ describe("plugins cli uninstall", () => {
         },
       },
     } as OpenClawConfig;
-    const nextConfig = {
+    const staleRemoved = {
       plugins: {
         entries: {},
         installs: {},
@@ -76,7 +77,7 @@ describe("plugins cli uninstall", () => {
     });
     uninstallPlugin.mockResolvedValue({
       ok: true,
-      config: nextConfig,
+      config: staleRemoved,
       warnings: [],
       actions: {
         entry: true,
@@ -97,7 +98,91 @@ describe("plugins cli uninstall", () => {
         deleteFiles: false,
       }),
     );
-    expect(writeConfigFile).toHaveBeenCalledWith(nextConfig);
+    const written = writeConfigFile.mock.calls[0]?.[0] as OpenClawConfig;
+    expect(written.plugins?.entries?.alpha).toBeUndefined();
+    expect(written.plugins?.installs?.alpha).toBeUndefined();
+  });
+
+  it("re-reads config before persist so concurrent keys survive uninstall I/O", async () => {
+    const baseConfig = {
+      gateway: { mode: "local" },
+      plugins: {
+        entries: {
+          alpha: { enabled: true },
+        },
+        installs: {
+          alpha: {
+            source: "npm",
+            spec: "alpha@1.0.0",
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const staleRemoved = {
+      gateway: { mode: "local" },
+      plugins: {
+        entries: {},
+        installs: {},
+      },
+    } as OpenClawConfig;
+    const freshDuringDelete = {
+      gateway: { mode: "local" },
+      plugins: {
+        entries: {
+          alpha: { enabled: true },
+          concurrent: { enabled: true },
+        },
+        installs: {
+          alpha: {
+            source: "npm",
+            spec: "alpha@1.0.0",
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    loadConfig.mockReturnValue(baseConfig);
+    readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        path: "/tmp/openclaw-config.json5",
+        exists: true,
+        raw: "{}",
+        parsed: freshDuringDelete,
+        resolved: freshDuringDelete,
+        valid: true,
+        config: freshDuringDelete,
+        hash: "mock",
+        issues: [],
+        warnings: [],
+        legacyIssues: [],
+      },
+      writeOptions: {},
+    });
+    buildPluginStatusReport.mockReturnValue({
+      plugins: [{ id: "alpha", name: "alpha" }],
+      diagnostics: [],
+    });
+    uninstallPlugin.mockResolvedValue({
+      ok: true,
+      config: staleRemoved,
+      warnings: [],
+      actions: {
+        entry: true,
+        install: true,
+        allowlist: false,
+        loadPath: false,
+        memorySlot: false,
+        directory: true,
+      },
+    });
+
+    await runPluginsCommand(["plugins", "uninstall", "alpha", "--force"]);
+
+    expect(writeConfigFile).not.toHaveBeenCalledWith(staleRemoved);
+    const written = writeConfigFile.mock.calls[0]?.[0] as OpenClawConfig;
+    expect(written.plugins?.entries?.alpha).toBeUndefined();
+    expect(written.plugins?.installs?.alpha).toBeUndefined();
+    expect(written.plugins?.entries?.concurrent).toEqual({ enabled: true });
   });
 
   it("exits when uninstall target is not managed by plugin install records", async () => {
