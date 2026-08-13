@@ -98,7 +98,7 @@ describe("plugins cli uninstall", () => {
         deleteFiles: false,
       }),
     );
-    const written = writeConfigFile.mock.calls[0]?.[0] as OpenClawConfig;
+    const written = writeConfigFile.mock.calls[0]?.[0];
     expect(written.plugins?.entries?.alpha).toBeUndefined();
     expect(written.plugins?.installs?.alpha).toBeUndefined();
   });
@@ -179,7 +179,7 @@ describe("plugins cli uninstall", () => {
     await runPluginsCommand(["plugins", "uninstall", "alpha", "--force"]);
 
     expect(writeConfigFile).not.toHaveBeenCalledWith(staleRemoved);
-    const written = writeConfigFile.mock.calls[0]?.[0] as OpenClawConfig;
+    const written = writeConfigFile.mock.calls[0]?.[0];
     expect(written.plugins?.entries?.alpha).toBeUndefined();
     expect(written.plugins?.installs?.alpha).toBeUndefined();
     expect(written.plugins?.entries?.concurrent).toEqual({ enabled: true });

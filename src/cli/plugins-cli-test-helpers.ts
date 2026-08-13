@@ -6,9 +6,9 @@ import { createCliRuntimeCapture } from "./test-runtime-capture.js";
 export const loadConfig = vi.fn<() => OpenClawConfig>(() => ({}) as OpenClawConfig);
 export const readConfigFileSnapshot = vi.fn();
 export const readConfigFileSnapshotForWrite = vi.fn();
-export const writeConfigFile = vi.fn<
-  (config: OpenClawConfig, options?: unknown) => Promise<void>
->(async () => undefined);
+export const writeConfigFile = vi.fn<(config: OpenClawConfig, options?: unknown) => Promise<void>>(
+  async () => undefined,
+);
 export const resolveStateDir = vi.fn(() => "/tmp/openclaw-state");
 export const installPluginFromMarketplace = vi.fn();
 export const listMarketplacePlugins = vi.fn();
@@ -78,9 +78,8 @@ vi.mock("../plugins/slots.js", () => ({
 }));
 
 vi.mock("../plugins/uninstall.js", async () => {
-  const actual = await vi.importActual<typeof import("../plugins/uninstall.js")>(
-    "../plugins/uninstall.js",
-  );
+  const actual =
+    await vi.importActual<typeof import("../plugins/uninstall.js")>("../plugins/uninstall.js");
   return {
     ...actual,
     uninstallPlugin: (...args: unknown[]) => uninstallPlugin(...args),
