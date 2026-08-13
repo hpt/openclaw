@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenClawConfig } from "../config/config.js";
+import {
+  readConfigFileSnapshotForWrite,
+  writeConfigFile,
+  type OpenClawConfig,
+} from "../config/config.js";
+import type { ConfigWriteOptions } from "../config/io.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { resolvePluginInstallDir } from "./install.js";
 import { defaultSlotIdForKey } from "./slots.js";
@@ -234,4 +239,31 @@ export async function uninstallPlugin(
     actions,
     warnings,
   };
+}
+
+type PersistPluginUninstallConfigParams = {
+  pluginId: string;
+  fallbackConfig: OpenClawConfig;
+  readSnapshot?: typeof readConfigFileSnapshotForWrite;
+  writeConfig?: (cfg: OpenClawConfig, options?: ConfigWriteOptions) => Promise<void>;
+};
+
+/**
+ * Persist a plugin uninstall against a fresh on-disk snapshot.
+ *
+ * `uninstallPlugin` may spend a long time in `fs.rm` before the caller writes.
+ * Writing the pre-delete config lets `writeConfigFile`'s merge-patch null keys
+ * that a concurrent writer added during that window.
+ */
+export async function persistPluginUninstallConfig(
+  params: PersistPluginUninstallConfigParams,
+): Promise<OpenClawConfig> {
+  const readSnapshot = params.readSnapshot ?? readConfigFileSnapshotForWrite;
+  const writeConfig = params.writeConfig ?? writeConfigFile;
+  const { snapshot, writeOptions } = await readSnapshot();
+  const next = snapshot.valid
+    ? removePluginFromConfig(snapshot.config, params.pluginId).config
+    : params.fallbackConfig;
+  await writeConfig(next, writeOptions);
+  return next;
 }

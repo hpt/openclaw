@@ -5,7 +5,8 @@ import { createCliRuntimeCapture } from "./test-runtime-capture.js";
 
 export const loadConfig = vi.fn<() => OpenClawConfig>(() => ({}) as OpenClawConfig);
 export const readConfigFileSnapshot = vi.fn();
-export const writeConfigFile = vi.fn<(config: OpenClawConfig) => Promise<void>>(
+export const readConfigFileSnapshotForWrite = vi.fn();
+export const writeConfigFile = vi.fn<(config: OpenClawConfig, options?: unknown) => Promise<void>>(
   async () => undefined,
 );
 export const resolveStateDir = vi.fn(() => "/tmp/openclaw-state");
@@ -41,7 +42,8 @@ vi.mock("../runtime.js", () => ({
 vi.mock("../config/config.js", () => ({
   loadConfig: () => loadConfig(),
   readConfigFileSnapshot: (...args: unknown[]) => readConfigFileSnapshot(...args),
-  writeConfigFile: (config: OpenClawConfig) => writeConfigFile(config),
+  readConfigFileSnapshotForWrite: (...args: unknown[]) => readConfigFileSnapshotForWrite(...args),
+  writeConfigFile: (config: OpenClawConfig, options?: unknown) => writeConfigFile(config, options),
 }));
 
 vi.mock("../config/paths.js", () => ({
@@ -75,14 +77,19 @@ vi.mock("../plugins/slots.js", () => ({
   applyExclusiveSlotSelection: (...args: unknown[]) => applyExclusiveSlotSelection(...args),
 }));
 
-vi.mock("../plugins/uninstall.js", () => ({
-  uninstallPlugin: (...args: unknown[]) => uninstallPlugin(...args),
-  resolveUninstallDirectoryTarget: ({
-    installRecord,
-  }: {
-    installRecord?: { installPath?: string; sourcePath?: string };
-  }) => installRecord?.installPath ?? installRecord?.sourcePath ?? null,
-}));
+vi.mock("../plugins/uninstall.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../plugins/uninstall.js")>("../plugins/uninstall.js");
+  return {
+    ...actual,
+    uninstallPlugin: (...args: unknown[]) => uninstallPlugin(...args),
+    resolveUninstallDirectoryTarget: ({
+      installRecord,
+    }: {
+      installRecord?: { installPath?: string; sourcePath?: string };
+    }) => installRecord?.installPath ?? installRecord?.sourcePath ?? null,
+  };
+});
 
 vi.mock("../plugins/update.js", () => ({
   updateNpmInstalledPlugins: (...args: unknown[]) => updateNpmInstalledPlugins(...args),
@@ -141,6 +148,7 @@ export function resetPluginsCliTestState() {
   resetRuntimeCapture();
   loadConfig.mockReset();
   readConfigFileSnapshot.mockReset();
+  readConfigFileSnapshotForWrite.mockReset();
   writeConfigFile.mockReset();
   resolveStateDir.mockReset();
   installPluginFromMarketplace.mockReset();
@@ -163,8 +171,7 @@ export function resetPluginsCliTestState() {
   installHooksFromPath.mockReset();
   recordHookInstall.mockReset();
 
-  loadConfig.mockReturnValue({} as OpenClawConfig);
-  readConfigFileSnapshot.mockResolvedValue({
+  const emptySnapshot = {
     path: "/tmp/openclaw-config.json5",
     exists: true,
     raw: "{}",
@@ -176,7 +183,18 @@ export function resetPluginsCliTestState() {
     issues: [],
     warnings: [],
     legacyIssues: [],
-  });
+  };
+  loadConfig.mockReturnValue({} as OpenClawConfig);
+  readConfigFileSnapshot.mockResolvedValue(emptySnapshot);
+  readConfigFileSnapshotForWrite.mockImplementation(async () => ({
+    snapshot: {
+      ...emptySnapshot,
+      parsed: loadConfig(),
+      resolved: loadConfig(),
+      config: loadConfig(),
+    },
+    writeOptions: {},
+  }));
   writeConfigFile.mockResolvedValue(undefined);
   resolveStateDir.mockReturnValue("/tmp/openclaw-state");
   resolveMarketplaceInstallShortcut.mockResolvedValue(null);

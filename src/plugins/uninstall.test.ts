@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import { createConfigIO } from "../config/io.js";
 import { resolvePluginInstallDir } from "./install.js";
 import {
+  persistPluginUninstallConfig,
   removePluginFromConfig,
   resolveUninstallDirectoryTarget,
   uninstallPlugin,
@@ -514,5 +516,65 @@ describe("resolveUninstallDirectoryTarget", () => {
     });
 
     expect(target).toBe(resolvePluginInstallDir("my-plugin", extensionsDir));
+  });
+});
+
+describe("persistPluginUninstallConfig", () => {
+  it("overlays uninstall onto a fresh snapshot so concurrent keys are not wiped", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-uninstall-rmw-"));
+    const configPath = path.join(dir, ".openclaw", "openclaw.json");
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    try {
+      const initial: OpenClawConfig = {
+        gateway: { mode: "local" },
+        plugins: {
+          entries: {
+            "my-plugin": { enabled: true },
+            "other-plugin": { enabled: true },
+          },
+          installs: {
+            "my-plugin": { source: "npm", spec: "my-plugin@1.0.0" },
+          },
+        },
+      };
+      await fs.writeFile(configPath, JSON.stringify(initial, null, 2), "utf-8");
+
+      const io = createConfigIO({
+        env: {} as NodeJS.ProcessEnv,
+        homedir: () => dir,
+        logger: { warn: () => {}, error: () => {} },
+      });
+      const staleSnapshot = await io.readConfigFileSnapshot();
+      expect(staleSnapshot.valid).toBe(true);
+      const staleRemoved = removePluginFromConfig(staleSnapshot.config, "my-plugin").config;
+
+      const concurrent: OpenClawConfig = {
+        ...staleSnapshot.config,
+        plugins: {
+          ...staleSnapshot.config.plugins,
+          entries: {
+            ...staleSnapshot.config.plugins?.entries,
+            concurrent: { enabled: true },
+          },
+        },
+      };
+      await io.writeConfigFile(concurrent);
+
+      await persistPluginUninstallConfig({
+        pluginId: "my-plugin",
+        fallbackConfig: staleRemoved,
+        readSnapshot: () => io.readConfigFileSnapshotForWrite(),
+        writeConfig: (cfg, options) => io.writeConfigFile(cfg, options),
+      });
+
+      const persisted = JSON.parse(await fs.readFile(configPath, "utf-8")) as OpenClawConfig;
+      expect(persisted.plugins?.entries?.["my-plugin"]).toBeUndefined();
+      expect(persisted.plugins?.installs?.["my-plugin"]).toBeUndefined();
+      expect(persisted.plugins?.entries?.["other-plugin"]).toEqual({ enabled: true });
+      expect(persisted.plugins?.entries?.concurrent).toEqual({ enabled: true });
+      expect(persisted.gateway?.mode).toBe("local");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 });

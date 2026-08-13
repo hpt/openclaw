@@ -17,7 +17,11 @@ import {
   buildPluginStatusReport,
   formatPluginCompatibilityNotice,
 } from "../plugins/status.js";
-import { resolveUninstallDirectoryTarget, uninstallPlugin } from "../plugins/uninstall.js";
+import {
+  persistPluginUninstallConfig,
+  resolveUninstallDirectoryTarget,
+  uninstallPlugin,
+} from "../plugins/uninstall.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
@@ -672,7 +676,10 @@ export function registerPluginsCli(program: Command) {
         defaultRuntime.log(theme.warn(warning));
       }
 
-      await writeConfigFile(result.config);
+      await persistPluginUninstallConfig({
+        pluginId,
+        fallbackConfig: result.config,
+      });
 
       const removed: string[] = [];
       if (result.actions.entry) {
