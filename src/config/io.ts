@@ -42,7 +42,7 @@ import {
   resolveConfigIncludes,
 } from "./includes.js";
 import { findLegacyConfigIssues } from "./legacy.js";
-import { applyMergePatch } from "./merge-patch.js";
+import { applyMergePatch, createMergePatch } from "./merge-patch.js";
 import { normalizeExecSafeBinProfilesInConfig } from "./normalize-exec-safe-bin.js";
 import { normalizeConfigPaths } from "./normalize-paths.js";
 import { resolveConfigPath, resolveDefaultConfigCandidates, resolveStateDir } from "./paths.js";
@@ -420,45 +420,6 @@ function resolveGatewayMode(value: unknown): string | null {
   }
   const trimmed = gateway.mode.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function cloneUnknown<T>(value: T): T {
-  return structuredClone(value);
-}
-
-function createMergePatch(base: unknown, target: unknown): unknown {
-  if (!isPlainObject(base) || !isPlainObject(target)) {
-    return cloneUnknown(target);
-  }
-
-  const patch: Record<string, unknown> = {};
-  const keys = new Set([...Object.keys(base), ...Object.keys(target)]);
-  for (const key of keys) {
-    const hasBase = key in base;
-    const hasTarget = key in target;
-    if (!hasTarget) {
-      patch[key] = null;
-      continue;
-    }
-    const targetValue = target[key];
-    if (!hasBase) {
-      patch[key] = cloneUnknown(targetValue);
-      continue;
-    }
-    const baseValue = base[key];
-    if (isPlainObject(baseValue) && isPlainObject(targetValue)) {
-      const childPatch = createMergePatch(baseValue, targetValue);
-      if (isPlainObject(childPatch) && Object.keys(childPatch).length === 0) {
-        continue;
-      }
-      patch[key] = childPatch;
-      continue;
-    }
-    if (!isDeepStrictEqual(baseValue, targetValue)) {
-      patch[key] = cloneUnknown(targetValue);
-    }
-  }
-  return patch;
 }
 
 function collectEnvRefPaths(value: unknown, path: string, output: Map<string, string>): void {

@@ -37,6 +37,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
   const preflight = await runDoctorConfigPreflight();
   let snapshot = preflight.snapshot;
   const baseCfg = preflight.baseConfig;
+  const baselineConfig = structuredClone(baseCfg);
   let cfg: OpenClawConfig = baseCfg;
   let candidate = structuredClone(baseCfg);
   let pendingChanges = false;
@@ -163,6 +164,7 @@ export async function loadAndMaybeMigrateDoctorConfig(params: {
 
   return {
     cfg,
+    baselineConfig,
     path: snapshot.path ?? CONFIG_PATH,
     shouldWriteConfig: finalized.shouldWriteConfig,
     sourceConfigValid: snapshot.valid,

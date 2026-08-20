@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyMergePatch } from "./merge-patch.js";
+import { applyMergePatch, createMergePatch, mergeConfigMutationsOntoFresh } from "./merge-patch.js";
+import type { OpenClawConfig } from "./types.js";
 
 describe("applyMergePatch", () => {
   function makeAgentListBaseAndPatch() {
@@ -177,5 +178,76 @@ describe("applyMergePatch", () => {
       };
     };
     expect(merged.channels?.telegram?.allowFrom).toEqual(["333"]);
+  });
+});
+
+describe("createMergePatch", () => {
+  it("nulls keys present on base but missing from target", () => {
+    const patch = createMergePatch(
+      { channels: { telegram: { botToken: "123:ABC" } }, gateway: { mode: "local" } },
+      { gateway: { mode: "local" } },
+    ) as { channels?: null; gateway?: Record<string, unknown> };
+    expect(patch.channels).toBeNull();
+    expect(patch.gateway).toBeUndefined();
+  });
+});
+
+describe("mergeConfigMutationsOntoFresh", () => {
+  it("keeps concurrent disk keys while applying local mutations", () => {
+    const baseline = {
+      gateway: { mode: "local" },
+    };
+    const mutated = {
+      gateway: { mode: "local", auth: { mode: "token", token: "doctor-token" } },
+    };
+    const fresh = {
+      gateway: { mode: "local" },
+      channels: { telegram: { botToken: "123:ABC" } },
+    };
+
+    const merged = mergeConfigMutationsOntoFresh({
+      baseline,
+      mutated,
+      fresh,
+    } as {
+      baseline: OpenClawConfig;
+      mutated: OpenClawConfig;
+      fresh: OpenClawConfig;
+    });
+    expect(merged.gateway).toEqual({
+      mode: "local",
+      auth: { mode: "token", token: "doctor-token" },
+    });
+    expect(merged.channels).toEqual({ telegram: { botToken: "123:ABC" } });
+  });
+
+  it("preserves a token written to disk after the baseline snapshot", () => {
+    const baseline = {
+      gateway: { mode: "local" },
+      channels: { telegram: { botToken: "old" } },
+    };
+    const mutated = {
+      gateway: { mode: "local" },
+      channels: { telegram: { botToken: "old" } },
+      wizard: { lastRunCommand: "doctor" },
+    };
+    const fresh = {
+      gateway: { mode: "local", auth: { mode: "token", token: "service-token" } },
+      channels: { telegram: { botToken: "old" } },
+      plugins: { entries: { matrix: { enabled: true } } },
+    };
+
+    const merged = mergeConfigMutationsOntoFresh({
+      baseline,
+      mutated,
+      fresh,
+    } as {
+      baseline: OpenClawConfig;
+      mutated: OpenClawConfig;
+      fresh: OpenClawConfig;
+    });
+    expect(merged.gateway?.auth).toEqual({ mode: "token", token: "service-token" });
+    expect(merged.wizard).toEqual({ lastRunCommand: "doctor" });
+    expect(merged.plugins).toEqual({ entries: { matrix: { enabled: true } } });
   });
 });

@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => ({
   stage: vi.fn(),
   install: vi.fn(),
   writeConfigFile: vi.fn().mockResolvedValue(undefined),
+  readConfigFileSnapshotForWrite: vi.fn().mockResolvedValue({
+    snapshot: { valid: false, exists: false, config: {} },
+    writeOptions: {},
+  }),
   auditGatewayServiceConfig: vi.fn(),
   buildGatewayInstallPlan: vi.fn(),
   resolveGatewayAuthTokenForService: vi.fn(),
@@ -42,6 +46,7 @@ vi.mock("../config/paths.js", () => ({
 
 vi.mock("../config/config.js", () => ({
   writeConfigFile: mocks.writeConfigFile,
+  readConfigFileSnapshotForWrite: mocks.readConfigFileSnapshotForWrite,
 }));
 
 vi.mock("../daemon/inspect.js", () => ({
@@ -232,6 +237,10 @@ describe("maybeRepairGatewayServiceConfig", () => {
       const envToken = env.OPENCLAW_GATEWAY_TOKEN?.trim() || undefined;
       return { token: configToken || envToken };
     });
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: { valid: false, exists: false, config: {} },
+      writeOptions: {},
+    });
   });
 
   afterEach(() => {
@@ -315,9 +324,53 @@ describe("maybeRepairGatewayServiceConfig", () => {
             }),
           }),
         }),
+        expect.anything(),
       );
       expect(mocks.stage).not.toHaveBeenCalled();
       expect(mocks.install).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("re-reads config before persisting a recovered gateway token so concurrent keys survive", async () => {
+    await withEnvAsync({ OPENCLAW_GATEWAY_TOKEN: "env-token" }, async () => {
+      setupGatewayTokenRepairScenario();
+      mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+        snapshot: {
+          valid: true,
+          exists: true,
+          config: {
+            gateway: {},
+            channels: {
+              telegram: { botToken: "123:ABC" },
+            },
+            plugins: {
+              entries: { "voice-call": { enabled: true } },
+            },
+          },
+        },
+        writeOptions: { expectedConfigPath: "/tmp/openclaw.json" },
+      });
+
+      await runRepair({ gateway: {} });
+
+      expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gateway: expect.objectContaining({
+            auth: expect.objectContaining({
+              token: "env-token",
+            }),
+          }),
+          channels: expect.objectContaining({
+            telegram: expect.objectContaining({ botToken: "123:ABC" }),
+          }),
+          plugins: expect.objectContaining({
+            entries: expect.objectContaining({
+              "voice-call": expect.objectContaining({ enabled: true }),
+            }),
+          }),
+        }),
+        { expectedConfigPath: "/tmp/openclaw.json" },
+      );
     });
   });
 
@@ -495,6 +548,7 @@ describe("maybeRepairGatewayServiceConfig", () => {
               }),
             }),
           }),
+          expect.anything(),
         );
         expect(mocks.buildGatewayInstallPlan).toHaveBeenCalledWith(
           expect.objectContaining({

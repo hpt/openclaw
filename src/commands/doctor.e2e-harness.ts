@@ -55,6 +55,7 @@ function createLegacyConfigSnapshot() {
 }
 
 export const readConfigFileSnapshot = vi.fn() as unknown as MockFn;
+export const readConfigFileSnapshotForWrite = vi.fn() as unknown as MockFn;
 export const confirm = vi.fn().mockResolvedValue(true) as unknown as MockFn;
 export const select = vi.fn().mockResolvedValue("node") as unknown as MockFn;
 export const note = vi.fn() as unknown as MockFn;
@@ -206,6 +207,7 @@ vi.mock("../config/config.js", async (importOriginal) => {
     CONFIG_PATH: "/tmp/openclaw.json",
     createConfigIO,
     readConfigFileSnapshot,
+    readConfigFileSnapshotForWrite,
     writeConfigFile,
     migrateLegacyConfig,
   };
@@ -413,6 +415,10 @@ beforeEach(() => {
   note.mockClear();
 
   readConfigFileSnapshot.mockReset();
+  readConfigFileSnapshotForWrite.mockReset().mockImplementation(async () => ({
+    snapshot: await readConfigFileSnapshot(),
+    writeOptions: {},
+  }));
   writeConfigFile.mockReset().mockResolvedValue(undefined);
   resolveOpenClawPackageRoot.mockReset().mockResolvedValue(null);
   runGatewayUpdate.mockReset().mockResolvedValue(createGatewayUpdateResult());
