@@ -357,13 +357,18 @@ export function mockDoctorConfigSnapshot(
     legacyIssues?: Array<{ path: string; message: string }>;
   } = {},
 ) {
-  readConfigFileSnapshot.mockResolvedValue({
+  const snapshot = {
     ...DEFAULT_CONFIG_SNAPSHOT,
     config: params.config ?? DEFAULT_CONFIG_SNAPSHOT.config,
     parsed: params.parsed ?? DEFAULT_CONFIG_SNAPSHOT.parsed,
     valid: params.valid ?? DEFAULT_CONFIG_SNAPSHOT.valid,
     issues: params.issues ?? DEFAULT_CONFIG_SNAPSHOT.issues,
     legacyIssues: params.legacyIssues ?? DEFAULT_CONFIG_SNAPSHOT.legacyIssues,
+  };
+  readConfigFileSnapshot.mockResolvedValue(snapshot);
+  readConfigFileSnapshotForWrite.mockResolvedValue({
+    snapshot,
+    writeOptions: {},
   });
 }
 
@@ -415,10 +420,10 @@ beforeEach(() => {
   note.mockClear();
 
   readConfigFileSnapshot.mockReset();
-  readConfigFileSnapshotForWrite.mockReset().mockImplementation(async () => ({
-    snapshot: await readConfigFileSnapshot(),
+  readConfigFileSnapshotForWrite.mockReset().mockResolvedValue({
+    snapshot: { valid: false, exists: false, config: {} },
     writeOptions: {},
-  }));
+  });
   writeConfigFile.mockReset().mockResolvedValue(undefined);
   resolveOpenClawPackageRoot.mockReset().mockResolvedValue(null);
   runGatewayUpdate.mockReset().mockResolvedValue(createGatewayUpdateResult());

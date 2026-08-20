@@ -10,7 +10,7 @@ import {
 } from "../agents/model-selection.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { CONFIG_PATH, readConfigFileSnapshot } from "../config/config.js";
+import { CONFIG_PATH, readConfigFileSnapshot, writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import { resolveGatewayService } from "../daemon/service.js";
@@ -357,6 +357,11 @@ export async function doctorCommand(
     cfg = await persistDoctorConfigMutations({
       baseline: baselineConfig,
       mutated: cfg,
+      readSnapshot: async () => ({
+        snapshot: await readConfigFileSnapshot(),
+        writeOptions: {},
+      }),
+      writeConfig: writeConfigFile,
     });
     logConfigUpdated(runtime);
     const backupPath = `${CONFIG_PATH}.bak`;
