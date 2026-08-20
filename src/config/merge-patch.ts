@@ -1,5 +1,7 @@
+import { isDeepStrictEqual } from "node:util";
 import { isPlainObject } from "../utils.js";
 import { isBlockedObjectKey } from "./prototype-keys.js";
+import type { OpenClawConfig } from "./types.js";
 
 type PlainObject = Record<string, unknown>;
 
@@ -94,4 +96,67 @@ export function applyMergePatch(
   }
 
   return result;
+}
+
+/**
+ * JSON-object check used by createMergePatch. Matches the historical
+ * writeConfigFile helper (arrays excluded, host objects treated as objects).
+ */
+function isMergePatchObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * RFC 7396-style merge patch from `base` to `target`.
+ *
+ * Keys present on `base` but missing from `target` are nulled so applyMergePatch
+ * deletes them. Used by writeConfigFile; callers that pass a stale full config as
+ * `target` will wipe concurrent keys that exist only on disk.
+ */
+export function createMergePatch(base: unknown, target: unknown): unknown {
+  if (!isMergePatchObject(base) || !isMergePatchObject(target)) {
+    return structuredClone(target);
+  }
+
+  const patch: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(base), ...Object.keys(target)]);
+  for (const key of keys) {
+    const hasBase = key in base;
+    const hasTarget = key in target;
+    if (!hasTarget) {
+      patch[key] = null;
+      continue;
+    }
+    const targetValue = target[key];
+    if (!hasBase) {
+      patch[key] = structuredClone(targetValue);
+      continue;
+    }
+    const baseValue = base[key];
+    if (isMergePatchObject(baseValue) && isMergePatchObject(targetValue)) {
+      const childPatch = createMergePatch(baseValue, targetValue);
+      if (isMergePatchObject(childPatch) && Object.keys(childPatch).length === 0) {
+        continue;
+      }
+      patch[key] = childPatch;
+      continue;
+    }
+    if (!isDeepStrictEqual(baseValue, targetValue)) {
+      patch[key] = structuredClone(targetValue);
+    }
+  }
+  return patch;
+}
+
+/**
+ * Apply local mutations (`baseline` → `mutated`) onto a freshly read config so a
+ * later writeConfigFile merge-patch cannot null concurrent keys.
+ */
+export function mergeConfigMutationsOntoFresh(params: {
+  baseline: OpenClawConfig;
+  mutated: OpenClawConfig;
+  fresh: OpenClawConfig;
+}): OpenClawConfig {
+  const patch = createMergePatch(params.baseline, params.mutated);
+  return applyMergePatch(params.fresh, patch) as OpenClawConfig;
 }

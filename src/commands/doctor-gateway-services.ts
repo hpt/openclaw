@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { writeConfigFile, type OpenClawConfig } from "../config/config.js";
+import { type OpenClawConfig } from "../config/config.js";
 import { resolveGatewayPort, resolveIsNixMode } from "../config/paths.js";
 import { resolveSecretInputRef } from "../config/types.secrets.js";
 import {
@@ -25,6 +25,7 @@ import { note } from "../terminal/note.js";
 import { buildGatewayInstallPlan } from "./daemon-install-helpers.js";
 import { DEFAULT_GATEWAY_DAEMON_RUNTIME, type GatewayDaemonRuntime } from "./daemon-runtime.js";
 import { resolveGatewayAuthTokenForService } from "./doctor-gateway-auth-token.js";
+import { persistGatewayAuthToken } from "./doctor-persist-config.js";
 import type { DoctorOptions, DoctorPrompter } from "./doctor-prompter.js";
 import { isDoctorUpdateRepairMode } from "./doctor-repair-mode.js";
 
@@ -343,19 +344,12 @@ export async function maybeRepairGatewayServiceConfig(
     !configuredGatewayToken &&
     gatewayTokenForRepair
   ) {
-    const nextCfg: OpenClawConfig = {
-      ...cfg,
-      gateway: {
-        ...cfg.gateway,
-        auth: {
-          ...cfg.gateway?.auth,
-          mode: cfg.gateway?.auth?.mode ?? "token",
-          token: gatewayTokenForRepair,
-        },
-      },
-    };
     try {
-      await writeConfigFile(nextCfg);
+      const nextCfg = await persistGatewayAuthToken({
+        cfg,
+        token: gatewayTokenForRepair,
+        mode: cfg.gateway?.auth?.mode ?? "token",
+      });
       cfgForServiceInstall = nextCfg;
       note(
         expectedGatewayToken
