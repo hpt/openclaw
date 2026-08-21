@@ -3,9 +3,14 @@ import type { MockFn } from "../test-utils/vitest-mock-fn.js";
 
 export const configMocks: {
   readConfigFileSnapshot: MockFn;
+  readConfigFileSnapshotForWrite: MockFn;
   writeConfigFile: MockFn;
 } = {
   readConfigFileSnapshot: vi.fn() as unknown as MockFn,
+  readConfigFileSnapshotForWrite: vi.fn(async () => ({
+    snapshot: await configMocks.readConfigFileSnapshot(),
+    writeOptions: {},
+  })) as unknown as MockFn,
   writeConfigFile: vi.fn().mockResolvedValue(undefined) as unknown as MockFn,
 };
 
@@ -20,6 +25,7 @@ vi.mock("../config/config.js", async (importOriginal) => {
   return {
     ...actual,
     readConfigFileSnapshot: configMocks.readConfigFileSnapshot,
+    readConfigFileSnapshotForWrite: configMocks.readConfigFileSnapshotForWrite,
     writeConfigFile: configMocks.writeConfigFile,
   };
 });

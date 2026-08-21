@@ -131,6 +131,10 @@ describe("channelsAddCommand", () => {
 
   beforeEach(async () => {
     configMocks.readConfigFileSnapshot.mockClear();
+    configMocks.readConfigFileSnapshotForWrite.mockImplementation(async () => ({
+      snapshot: await configMocks.readConfigFileSnapshot(),
+      writeOptions: {},
+    }));
     configMocks.writeConfigFile.mockClear();
     offsetMocks.deleteTelegramUpdateOffset.mockClear();
     runtime.log.mockClear();
@@ -405,6 +409,63 @@ describe("channelsAddCommand", () => {
     expect(runtime.exit).not.toHaveBeenCalled();
     expect(runtime.error).toHaveBeenCalledWith(
       'Channel signal post-setup warning for "ops": hook failed',
+    );
+  });
+
+  it("preserves concurrent config keys added during catalog plugin install", async () => {
+    const baselineConfig = {
+      channels: {
+        telegram: { botToken: "tg-token", enabled: true },
+      },
+    };
+    configMocks.readConfigFileSnapshot.mockResolvedValue({
+      ...baseConfigSnapshot,
+      config: baselineConfig,
+    });
+    configMocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        ...baseConfigSnapshot,
+        config: {
+          ...baselineConfig,
+          mcp: {
+            servers: {
+              github: { command: "uvx", args: ["mcp-server-github"] },
+            },
+          },
+        },
+      },
+      writeOptions: {},
+    });
+    setActivePluginRegistry(createTestRegistry());
+    const catalogEntry = createMSTeamsCatalogEntry();
+    catalogMocks.listChannelPluginCatalogEntries.mockReturnValue([catalogEntry]);
+    registerMSTeamsSetupPlugin("msteams");
+
+    await channelsAddCommand(
+      {
+        channel: "msteams",
+        account: "default",
+        token: "tenant-concurrent",
+      },
+      runtime,
+      { hasFlags: true },
+    );
+
+    expect(configMocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: {
+          telegram: { botToken: "tg-token", enabled: true },
+          msteams: {
+            enabled: true,
+            tenantId: "tenant-concurrent",
+          },
+        },
+        mcp: {
+          servers: {
+            github: { command: "uvx", args: ["mcp-server-github"] },
+          },
+        },
+      }),
     );
   });
 });
