@@ -5,7 +5,8 @@ import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/ind
 import { moveSingleAccountChannelSectionToDefaultAccount } from "../../channels/plugins/setup-helpers.js";
 import type { ChannelSetupPlugin } from "../../channels/plugins/setup-wizard-types.js";
 import type { ChannelId, ChannelPlugin, ChannelSetupInput } from "../../channels/plugins/types.js";
-import { writeConfigFile, type OpenClawConfig } from "../../config/config.js";
+import { type OpenClawConfig } from "../../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../../runtime.js";
 import { createClackPrompter } from "../../wizard/clack-prompter.js";
@@ -50,6 +51,7 @@ export async function channelsAddCommand(
   if (!cfg) {
     return;
   }
+  const baseline = structuredClone(cfg);
   let nextConfig = cfg;
 
   const useWizard = shouldUseWizard(params);
@@ -177,7 +179,10 @@ export async function channelsAddCommand(
       }
     }
 
-    await writeConfigFile(nextConfig);
+    nextConfig = await writeConfigFilePreservingConcurrentKeys({
+      baseline,
+      mutated: nextConfig,
+    });
     await runCollectedChannelOnboardingPostWriteHooks({
       hooks: postWriteHooks.drain(),
       cfg: nextConfig,
@@ -348,7 +353,10 @@ export async function channelsAddCommand(
     runtime,
   });
 
-  await writeConfigFile(nextConfig);
+  nextConfig = await writeConfigFilePreservingConcurrentKeys({
+    baseline,
+    mutated: nextConfig,
+  });
   runtime.log(`Added ${channelLabel(channel)} account "${accountId}".`);
   const afterAccountConfigWritten = plugin.setup?.afterAccountConfigWritten;
   if (afterAccountConfigWritten) {
