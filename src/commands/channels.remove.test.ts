@@ -40,6 +40,11 @@ describe("channelsRemoveCommand", () => {
 
   beforeEach(() => {
     configMocks.readConfigFileSnapshot.mockClear();
+    configMocks.readConfigFileSnapshotForWrite.mockClear();
+    configMocks.readConfigFileSnapshotForWrite.mockImplementation(async () => ({
+      snapshot: await configMocks.readConfigFileSnapshot(),
+      writeOptions: {},
+    }));
     configMocks.writeConfigFile.mockClear();
     runtime.log.mockClear();
     runtime.error.mockClear();
@@ -139,6 +144,117 @@ describe("channelsRemoveCommand", () => {
       expect.objectContaining({
         channel: "msteams",
         pluginId: "@openclaw/msteams-plugin",
+      }),
+    );
+    expect(configMocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        channels: expect.objectContaining({
+          msteams: expect.anything(),
+        }),
+      }),
+    );
+    expect(runtime.error).not.toHaveBeenCalled();
+    expect(runtime.exit).not.toHaveBeenCalled();
+  });
+
+  it("preserves concurrent config keys added during catalog plugin install", async () => {
+    const baselineConfig = {
+      channels: {
+        telegram: { botToken: "tg-token", enabled: true },
+        msteams: {
+          enabled: true,
+          tenantId: "tenant-1",
+        },
+      },
+    };
+    configMocks.readConfigFileSnapshot.mockResolvedValue({
+      ...baseConfigSnapshot,
+      config: baselineConfig,
+    });
+    configMocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        ...baseConfigSnapshot,
+        config: {
+          ...baselineConfig,
+          mcp: {
+            servers: {
+              github: { command: "uvx", args: ["mcp-server-github"] },
+            },
+          },
+        },
+      },
+      writeOptions: {},
+    });
+    const catalogEntry: ChannelPluginCatalogEntry = {
+      id: "msteams",
+      pluginId: "@openclaw/msteams-plugin",
+      meta: {
+        id: "msteams",
+        label: "Microsoft Teams",
+        selectionLabel: "Microsoft Teams",
+        docsPath: "/channels/msteams",
+        blurb: "teams channel",
+      },
+      install: {
+        npmSpec: "@openclaw/msteams",
+      },
+    };
+    catalogMocks.listChannelPluginCatalogEntries.mockReturnValue([catalogEntry]);
+    const scopedPlugin = {
+      ...createChannelTestPluginBase({
+        id: "msteams",
+        label: "Microsoft Teams",
+        docsPath: "/channels/msteams",
+      }),
+      config: {
+        ...createChannelTestPluginBase({
+          id: "msteams",
+          label: "Microsoft Teams",
+          docsPath: "/channels/msteams",
+        }).config,
+        deleteAccount: vi.fn(({ cfg }: { cfg: Record<string, unknown> }) => {
+          const channels = (cfg.channels as Record<string, unknown> | undefined) ?? {};
+          const nextChannels = { ...channels };
+          delete nextChannels.msteams;
+          return {
+            ...cfg,
+            channels: nextChannels,
+          };
+        }),
+      },
+    };
+    vi.mocked(loadChannelSetupPluginRegistrySnapshotForChannel)
+      .mockReturnValueOnce(createTestRegistry())
+      .mockReturnValueOnce(
+        createTestRegistry([
+          {
+            pluginId: "@openclaw/msteams-plugin",
+            plugin: scopedPlugin,
+            source: "test",
+          },
+        ]),
+      );
+
+    await channelsRemoveCommand(
+      {
+        channel: "msteams",
+        account: "default",
+        delete: true,
+      },
+      runtime,
+      { hasFlags: true },
+    );
+
+    expect(configMocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: {
+          telegram: { botToken: "tg-token", enabled: true },
+        },
+        mcp: {
+          servers: {
+            github: { command: "uvx", args: ["mcp-server-github"] },
+          },
+        },
       }),
     );
     expect(configMocks.writeConfigFile).toHaveBeenCalledWith(
