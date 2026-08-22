@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { isPlainObject } from "../utils.js";
 import { isBlockedObjectKey } from "./prototype-keys.js";
 
@@ -94,4 +95,57 @@ export function applyMergePatch(
   }
 
   return result;
+}
+
+function cloneUnknown<T>(value: T): T {
+  return structuredClone(value);
+}
+
+/**
+ * RFC 7396-style merge patch from `base` to `target`.
+ * Missing target keys become `null` so callers can overlay only their mutations
+ * onto a fresher snapshot without deleting concurrent unrelated keys.
+ */
+export function createMergePatch(base: unknown, target: unknown): unknown {
+  if (!isPlainObject(base) || !isPlainObject(target)) {
+    return cloneUnknown(target);
+  }
+
+  const patch: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(base), ...Object.keys(target)]);
+  for (const key of keys) {
+    const hasBase = key in base;
+    const hasTarget = key in target;
+    if (!hasTarget) {
+      patch[key] = null;
+      continue;
+    }
+    const targetValue = target[key];
+    if (!hasBase) {
+      patch[key] = cloneUnknown(targetValue);
+      continue;
+    }
+    const baseValue = base[key];
+    if (isPlainObject(baseValue) && isPlainObject(targetValue)) {
+      const childPatch = createMergePatch(baseValue, targetValue);
+      if (isPlainObject(childPatch) && Object.keys(childPatch).length === 0) {
+        continue;
+      }
+      patch[key] = childPatch;
+      continue;
+    }
+    if (!isDeepStrictEqual(baseValue, targetValue)) {
+      patch[key] = cloneUnknown(targetValue);
+    }
+  }
+  return patch;
+}
+
+export function mergeConfigMutationsOntoFresh<T extends Record<string, unknown>>(params: {
+  baseline: T;
+  mutated: T;
+  fresh: T;
+}): T {
+  const patch = createMergePatch(params.baseline, params.mutated);
+  return applyMergePatch(params.fresh, patch) as T;
 }

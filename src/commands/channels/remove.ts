@@ -4,7 +4,8 @@ import {
   listChannelPlugins,
   normalizeChannelId,
 } from "../../channels/plugins/index.js";
-import { type OpenClawConfig, writeConfigFile } from "../../config/config.js";
+import { type OpenClawConfig } from "../../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../../runtime.js";
 import { createClackPrompter } from "../../wizard/clack-prompter.js";
@@ -34,6 +35,7 @@ export async function channelsRemoveCommand(
   if (!loadedCfg) {
     return;
   }
+  const baseline = structuredClone(loadedCfg);
   let cfg = loadedCfg;
 
   const useWizard = shouldUseWizard(params);
@@ -160,7 +162,10 @@ export async function channelsRemoveCommand(
     });
   }
 
-  await writeConfigFile(next);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline,
+    mutated: next,
+  });
   if (useWizard && prompter) {
     await prompter.outro(
       deleteConfig
