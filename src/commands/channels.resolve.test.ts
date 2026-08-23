@@ -23,6 +23,13 @@ vi.mock("../config/config.js", () => ({
   writeConfigFile: mocks.writeConfigFile,
 }));
 
+vi.mock("../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: async ({ mutated }: { mutated: unknown }) => {
+    await mocks.writeConfigFile(mutated);
+    return mutated;
+  },
+}));
+
 vi.mock("../infra/outbound/channel-selection.js", () => ({
   resolveMessageChannelSelection: mocks.resolveMessageChannelSelection,
 }));
