@@ -2,7 +2,8 @@ import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelResolveKind, ChannelResolveResult } from "../../channels/plugins/types.js";
 import { resolveCommandSecretRefsViaGateway } from "../../cli/command-secret-gateway.js";
 import { getChannelsCommandSecretTargetIds } from "../../cli/command-secret-targets.js";
-import { loadConfig, writeConfigFile } from "../../config/config.js";
+import { loadConfig } from "../../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { danger } from "../../globals.js";
 import { resolveMessageChannelSelection } from "../../infra/outbound/channel-selection.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../../runtime.js";
@@ -98,8 +99,10 @@ export async function channelsResolveCommand(opts: ChannelsResolveOptions, runti
       })
     : null;
   if (resolvedExplicit?.configChanged) {
-    cfg = resolvedExplicit.cfg;
-    await writeConfigFile(cfg);
+    cfg = await writeConfigFilePreservingConcurrentKeys({
+      baseline: resolvedConfig,
+      mutated: resolvedExplicit.cfg,
+    });
   }
 
   const selection = explicitChannel

@@ -34,6 +34,13 @@ vi.mock("../../config/config.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: async ({ mutated }: { mutated: unknown }) => {
+    await mocks.writeConfigFile(mutated);
+    return mutated;
+  },
+}));
+
 vi.mock("../channel-setup/channel-plugin-resolution.js", () => ({
   resolveInstallableChannelPlugin: mocks.resolveInstallableChannelPlugin,
 }));

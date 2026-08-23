@@ -5,7 +5,8 @@ import {
   normalizeChannelId,
 } from "../channels/plugins/index.js";
 import { resolveInstallableChannelPlugin } from "../commands/channel-setup/channel-plugin-resolution.js";
-import { loadConfig, writeConfigFile, type OpenClawConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { setVerbose } from "../globals.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -137,8 +138,12 @@ export async function runChannelLogin(
     loadedCfg,
     runtime,
   );
+  let persistCfg = cfg;
   if (configChanged) {
-    await writeConfigFile(cfg);
+    persistCfg = await writeConfigFilePreservingConcurrentKeys({
+      baseline: loadedCfg,
+      mutated: cfg,
+    });
   }
   const login = plugin.auth?.login;
   if (!login) {
@@ -146,9 +151,9 @@ export async function runChannelLogin(
   }
   // Auth-only flow: do not mutate channel config here.
   setVerbose(Boolean(opts.verbose));
-  const { accountId } = resolveAccountContext(plugin, opts, cfg);
+  const { accountId } = resolveAccountContext(plugin, opts, persistCfg);
   await login({
-    cfg,
+    cfg: persistCfg,
     accountId,
     runtime,
     verbose: Boolean(opts.verbose),
@@ -167,18 +172,22 @@ export async function runChannelLogout(
     loadedCfg,
     runtime,
   );
+  let persistCfg = cfg;
   if (configChanged) {
-    await writeConfigFile(cfg);
+    persistCfg = await writeConfigFilePreservingConcurrentKeys({
+      baseline: loadedCfg,
+      mutated: cfg,
+    });
   }
   const logoutAccount = plugin.gateway?.logoutAccount;
   if (!logoutAccount) {
     throw new Error(`Channel ${channelInput} does not support logout`);
   }
   // Auth-only flow: resolve account + clear session state only.
-  const { accountId } = resolveAccountContext(plugin, opts, cfg);
-  const account = plugin.config.resolveAccount(cfg, accountId);
+  const { accountId } = resolveAccountContext(plugin, opts, persistCfg);
+  const account = plugin.config.resolveAccount(persistCfg, accountId);
   await logoutAccount({
-    cfg,
+    cfg: persistCfg,
     accountId,
     account,
     runtime,

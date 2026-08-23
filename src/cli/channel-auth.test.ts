@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   normalizeChannelId: vi.fn(),
   loadConfig: vi.fn(),
   writeConfigFile: vi.fn(),
+  readConfigFileSnapshotForWrite: vi.fn(),
   setVerbose: vi.fn(),
   createClackPrompter: vi.fn(),
   ensureChannelSetupPluginInstalled: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("../channels/plugins/index.js", () => ({
 vi.mock("../config/config.js", () => ({
   loadConfig: mocks.loadConfig,
   writeConfigFile: mocks.writeConfigFile,
+  readConfigFileSnapshotForWrite: mocks.readConfigFileSnapshotForWrite,
 }));
 
 vi.mock("../globals.js", () => ({
@@ -80,6 +82,10 @@ describe("channel-auth", () => {
     mocks.listChannelPluginCatalogEntries.mockReturnValue([]);
     mocks.loadConfig.mockReturnValue({ channels: { whatsapp: {} } });
     mocks.writeConfigFile.mockResolvedValue(undefined);
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: { exists: true, valid: false, config: {} },
+      writeOptions: {},
+    });
     mocks.listChannelPlugins.mockReturnValue([plugin]);
     mocks.resolveDefaultAgentId.mockReturnValue("main");
     mocks.resolveAgentWorkspaceDir.mockReturnValue("/tmp/workspace");
@@ -256,6 +262,77 @@ describe("channel-auth", () => {
     );
     expect(mocks.writeConfigFile).toHaveBeenCalledWith({ channels: { whatsapp: {} } });
     expect(mocks.login).toHaveBeenCalled();
+  });
+
+  it("preserves concurrent config keys when login installs a catalog plugin", async () => {
+    const catalogEntry = {
+      id: "msteams",
+      pluginId: "@openclaw/msteams",
+      meta: {
+        id: "msteams",
+        label: "Microsoft Teams",
+        selectionLabel: "Microsoft Teams",
+        docsPath: "/channels/msteams",
+        blurb: "teams",
+      },
+      install: {
+        npmSpec: "@openclaw/msteams",
+      },
+    };
+    const baseline = { channels: { telegram: { enabled: true } } };
+    const mutated = {
+      channels: { telegram: { enabled: true } },
+      plugins: { entries: { msteams: { enabled: true } } },
+    };
+    const teamsPlugin = {
+      ...plugin,
+      id: "msteams",
+    };
+    mocks.normalizeChannelId.mockReturnValue("msteams");
+    mocks.getChannelPlugin.mockReturnValueOnce(undefined).mockReturnValue(teamsPlugin);
+    mocks.listChannelPluginCatalogEntries.mockReturnValueOnce([catalogEntry]);
+    mocks.loadConfig.mockReturnValue(baseline);
+    mocks.ensureChannelSetupPluginInstalled.mockResolvedValue({
+      cfg: mutated,
+      installed: true,
+      pluginId: "msteams",
+    });
+    mocks.loadChannelSetupPluginRegistrySnapshotForChannel
+      .mockReturnValueOnce({
+        channels: [],
+        channelSetups: [],
+      })
+      .mockReturnValueOnce({
+        channels: [{ plugin: teamsPlugin }],
+        channelSetups: [],
+      });
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        exists: true,
+        valid: true,
+        config: {
+          channels: { telegram: { enabled: true } },
+          mcp: { servers: { github: { command: "uvx" } } },
+        },
+      },
+      writeOptions: {},
+    });
+
+    await runChannelLogin({ channel: "msteams" }, runtime);
+
+    expect(mocks.writeConfigFile).toHaveBeenCalledWith({
+      channels: { telegram: { enabled: true } },
+      plugins: { entries: { msteams: { enabled: true } } },
+      mcp: { servers: { github: { command: "uvx" } } },
+    });
+    expect(mocks.login).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cfg: expect.objectContaining({
+          mcp: { servers: { github: { command: "uvx" } } },
+          plugins: { entries: { msteams: { enabled: true } } },
+        }),
+      }),
+    );
   });
 
   it("resolves explicit channel login through the catalog when registry normalize misses", async () => {
