@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   applyAgentConfig: vi.fn((_cfg: unknown, _opts: unknown) => ({})),
   pruneAgentConfig: vi.fn(() => ({ config: {}, removedBindings: 0 })),
   writeConfigFile: vi.fn(async () => {}),
+  readConfigFileSnapshotForWrite: vi.fn(async () => ({
+    snapshot: { exists: false, valid: false, config: {} },
+    writeOptions: {},
+  })),
   ensureAgentWorkspace: vi.fn(async () => {}),
   isWorkspaceSetupCompleted: vi.fn(async () => false),
   resolveAgentDir: vi.fn(() => "/agents/test-agent"),
@@ -41,6 +45,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../config/config.js", () => ({
   loadConfig: () => mocks.loadConfigReturn,
   writeConfigFile: mocks.writeConfigFile,
+  readConfigFileSnapshotForWrite: mocks.readConfigFileSnapshotForWrite,
 }));
 
 vi.mock("../../commands/agents.config.js", () => ({
@@ -125,6 +130,10 @@ const { __testing: agentsTesting, agentsHandlers } = await import("./agents.js")
 
 beforeEach(() => {
   agentsTesting.resetDepsForTests();
+  mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+    snapshot: { exists: false, valid: false, config: {} },
+    writeOptions: {},
+  });
 });
 
 function makeCall(method: keyof typeof agentsHandlers, params: Record<string, unknown>) {
@@ -286,6 +295,46 @@ describe("agents.create", () => {
     );
     expect(mocks.ensureAgentWorkspace).toHaveBeenCalled();
     expect(mocks.writeConfigFile).toHaveBeenCalled();
+  });
+
+  it("preserves concurrent config keys added during workspace bootstrap", async () => {
+    const baseline = {
+      channels: { telegram: { enabled: true } },
+    };
+    const mutated = {
+      agents: {
+        list: [{ id: "order-test", workspace: "/tmp/ws" }],
+      },
+      channels: { telegram: { enabled: true } },
+    };
+    mocks.loadConfigReturn = baseline;
+    mocks.applyAgentConfig.mockImplementation(() => mutated);
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        exists: true,
+        valid: true,
+        config: {
+          channels: { telegram: { enabled: true } },
+          mcp: { servers: { github: { command: "uvx" } } },
+        },
+      },
+      writeOptions: {},
+    });
+
+    const { respond, promise } = makeCall("agents.create", {
+      name: "Order Test",
+      workspace: "/tmp/ws",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(true, expect.objectContaining({ ok: true }), undefined);
+    expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: mutated.agents,
+        channels: { telegram: { enabled: true } },
+        mcp: { servers: { github: { command: "uvx" } } },
+      }),
+    );
   });
 
   it("ensures workspace is set up before writing config", async () => {
@@ -452,6 +501,42 @@ describe("agents.update", () => {
 
     expect(respond).toHaveBeenCalledWith(true, { ok: true, agentId: "test-agent" }, undefined);
     expect(mocks.writeConfigFile).toHaveBeenCalled();
+  });
+
+  it("preserves concurrent config keys added while updating workspace files", async () => {
+    const baseline = {
+      agents: { list: [{ id: "test-agent", workspace: "/old" }] },
+    };
+    const mutated = {
+      agents: { list: [{ id: "test-agent", workspace: "/new/workspace" }] },
+    };
+    mocks.loadConfigReturn = baseline;
+    mocks.applyAgentConfig.mockImplementation(() => mutated);
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        exists: true,
+        valid: true,
+        config: {
+          agents: { list: [{ id: "test-agent", workspace: "/old" }] },
+          plugins: { entries: { extra: { enabled: true } } },
+        },
+      },
+      writeOptions: {},
+    });
+
+    const { respond, promise } = makeCall("agents.update", {
+      agentId: "test-agent",
+      workspace: "/new/workspace",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(true, { ok: true, agentId: "test-agent" }, undefined);
+    expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agents: mutated.agents,
+        plugins: { entries: { extra: { enabled: true } } },
+      }),
+    );
   });
 
   it("rejects updating a nonexistent agent", async () => {
