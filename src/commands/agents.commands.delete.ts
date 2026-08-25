@@ -1,6 +1,6 @@
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
-import { writeConfigFile } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions.js";
 import { DEFAULT_AGENT_ID, normalizeAgentId } from "../routing/session-key.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
@@ -70,7 +70,10 @@ export async function agentsDeleteCommand(
   const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
 
   const result = pruneAgentConfig(cfg, agentId);
-  await writeConfigFile(result.config);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline: cfg,
+    mutated: result.config,
+  });
   if (!opts.json) {
     logConfigUpdated(runtime);
   }

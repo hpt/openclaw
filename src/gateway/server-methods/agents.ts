@@ -25,7 +25,8 @@ import {
   listAgentEntries,
   pruneAgentConfig,
 } from "../../commands/agents.config.js";
-import { loadConfig, writeConfigFile } from "../../config/config.js";
+import { loadConfig } from "../../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { resolveSessionTranscriptsDirForAgent } from "../../config/sessions/paths.js";
 import { sameFileIdentity } from "../../infra/file-identity.js";
 import {
@@ -626,7 +627,10 @@ export const agentsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    await writeConfigFile(nextConfig);
+    await writeConfigFilePreservingConcurrentKeys({
+      baseline: cfg,
+      mutated: nextConfig,
+    });
 
     respond(true, { ok: true, agentId, name: rawName, workspace: workspaceDir }, undefined);
   },
@@ -694,7 +698,10 @@ export const agentsHandlers: GatewayRequestHandlers = {
       }
     }
 
-    await writeConfigFile(nextConfig);
+    await writeConfigFilePreservingConcurrentKeys({
+      baseline: cfg,
+      mutated: nextConfig,
+    });
 
     respond(true, { ok: true, agentId }, undefined);
   },
@@ -725,7 +732,10 @@ export const agentsHandlers: GatewayRequestHandlers = {
     const sessionsDir = resolveSessionTranscriptsDirForAgent(agentId);
 
     const result = pruneAgentConfig(cfg, agentId);
-    await writeConfigFile(result.config);
+    await writeConfigFilePreservingConcurrentKeys({
+      baseline: cfg,
+      mutated: result.config,
+    });
 
     if (deleteFiles) {
       await Promise.all([
