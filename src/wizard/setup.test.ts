@@ -139,6 +139,10 @@ vi.mock("../config/config.js", () => ({
   DEFAULT_GATEWAY_PORT: 18789,
   resolveGatewayPort: () => 18789,
   readConfigFileSnapshot,
+  readConfigFileSnapshotForWrite: async () => ({
+    snapshot: await readConfigFileSnapshot(),
+    writeOptions: {},
+  }),
   writeConfigFile,
 }));
 

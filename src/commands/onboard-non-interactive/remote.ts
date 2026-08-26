@@ -1,7 +1,7 @@
 import { formatCliCommand } from "../../cli/command-format.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { writeConfigFile } from "../../config/config.js";
 import { logConfigUpdated } from "../../config/logging.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../../runtime.js";
 import { applyWizardMetadata } from "../onboard-helpers.js";
 import type { OnboardOptions } from "../onboard-types.js";
@@ -11,6 +11,7 @@ export async function runNonInteractiveRemoteSetup(params: {
   runtime: RuntimeEnv;
   baseConfig: OpenClawConfig;
 }) {
+  const persistBaseline = structuredClone(params.baseConfig);
   const { opts, runtime, baseConfig } = params;
   const mode = "remote" as const;
 
@@ -33,7 +34,10 @@ export async function runNonInteractiveRemoteSetup(params: {
     },
   };
   nextConfig = applyWizardMetadata(nextConfig, { command: "onboard", mode });
-  await writeConfigFile(nextConfig);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline: persistBaseline,
+    mutated: nextConfig,
+  });
   logConfigUpdated(runtime);
 
   const payload = {

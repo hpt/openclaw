@@ -48,6 +48,7 @@ vi.mock("../infra/openclaw-root.js", () => ({
 
 vi.mock("../config/config.js", () => ({
   readConfigFileSnapshot: vi.fn(),
+  readConfigFileSnapshotForWrite: vi.fn(),
   resolveGatewayPort: vi.fn(() => 18789),
   writeConfigFile: vi.fn(),
 }));
@@ -139,7 +140,8 @@ vi.mock("../runtime.js", () => ({
 
 const { runGatewayUpdate } = await import("../infra/update-runner.js");
 const { resolveOpenClawPackageRoot } = await import("../infra/openclaw-root.js");
-const { readConfigFileSnapshot, writeConfigFile } = await import("../config/config.js");
+const { readConfigFileSnapshot, readConfigFileSnapshotForWrite, writeConfigFile } =
+  await import("../config/config.js");
 const { checkUpdateStatus, fetchNpmTagVersion, resolveNpmChannelTag } =
   await import("../infra/update-check.js");
 const { runCommandWithTimeout } = await import("../process/exec.js");
@@ -294,6 +296,10 @@ describe("update-cli", () => {
     vi.mocked(defaultRuntime.exit).mockImplementation(() => {});
     vi.mocked(resolveOpenClawPackageRoot).mockResolvedValue(process.cwd());
     vi.mocked(readConfigFileSnapshot).mockResolvedValue(baseSnapshot);
+    vi.mocked(readConfigFileSnapshotForWrite).mockImplementation(async () => ({
+      snapshot: await vi.mocked(readConfigFileSnapshot)(),
+      writeOptions: {},
+    }));
     vi.mocked(fetchNpmTagVersion).mockResolvedValue({
       tag: "latest",
       version: "9999.0.0",
@@ -789,6 +795,35 @@ describe("update-cli", () => {
     ).toBeLessThan(
       vi.mocked(writeConfigFile).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
+  });
+
+  it("preserves concurrent config keys when persisting the update channel", async () => {
+    const tempDir = createCaseDir("openclaw-update");
+    mockPackageInstallStatus(tempDir);
+    vi.mocked(readConfigFileSnapshot).mockResolvedValue({
+      ...baseSnapshot,
+      config: {
+        channels: { telegram: { enabled: true } },
+      } as OpenClawConfig,
+    });
+    vi.mocked(readConfigFileSnapshotForWrite).mockResolvedValue({
+      snapshot: {
+        ...baseSnapshot,
+        config: {
+          channels: { telegram: { enabled: true } },
+          mcp: { servers: { github: { command: "uvx" } } },
+        } as OpenClawConfig,
+      },
+      writeOptions: {},
+    });
+
+    await updateCommand({ channel: "beta", yes: true });
+
+    expect(writeConfigFile).toHaveBeenCalledWith({
+      channels: { telegram: { enabled: true } },
+      mcp: { servers: { github: { command: "uvx" } } },
+      update: { channel: "beta" },
+    });
   });
 
   it("does not persist the requested channel when the package update fails", async () => {

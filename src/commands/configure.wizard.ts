@@ -2,8 +2,9 @@ import fsPromises from "node:fs/promises";
 import nodePath from "node:path";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { readConfigFileSnapshot, resolveGatewayPort, writeConfigFile } from "../config/config.js";
+import { readConfigFileSnapshot, resolveGatewayPort } from "../config/config.js";
 import { logConfigUpdated } from "../config/logging.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { ensureControlUiAssetsBuilt } from "../infra/control-ui-assets.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { defaultRuntime } from "../runtime.js";
@@ -348,6 +349,7 @@ export async function runConfigureWizard(
 
     const snapshot = await readConfigFileSnapshot();
     const baseConfig: OpenClawConfig = snapshot.valid ? snapshot.config : {};
+    const persistBaseline = structuredClone(baseConfig);
 
     if (snapshot.exists) {
       const title = snapshot.valid ? "Existing config detected" : "Invalid config";
@@ -431,7 +433,10 @@ export async function runConfigureWizard(
         command: opts.command,
         mode,
       });
-      await writeConfigFile(remoteConfig);
+      await writeConfigFilePreservingConcurrentKeys({
+        baseline: persistBaseline,
+        mutated: remoteConfig,
+      });
       logConfigUpdated(runtime);
       outro("Remote gateway configured.");
       return;
@@ -460,7 +465,10 @@ export async function runConfigureWizard(
         command: opts.command,
         mode,
       });
-      await writeConfigFile(nextConfig);
+      await writeConfigFilePreservingConcurrentKeys({
+        baseline: persistBaseline,
+        mutated: nextConfig,
+      });
       logConfigUpdated(runtime);
     };
 
