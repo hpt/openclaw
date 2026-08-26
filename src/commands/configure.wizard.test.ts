@@ -291,92 +291,114 @@ describe("runConfigureWizard", () => {
   });
 
   it("persists provider-owned web search config changes returned by applySearchKey", async () => {
-    setupBaseWizardState();
-    mocks.resolveExistingKey.mockReturnValue(undefined);
-    mocks.hasExistingKey.mockReturnValue(false);
-    mocks.hasKeyInEnv.mockReturnValue(false);
-    mocks.applySearchKey.mockImplementation((cfg: OpenClawConfig, provider: string, key: string) =>
-      createEnabledWebSearchConfig(provider, {
-        enabled: true,
-        config: { webSearch: { apiKey: key } },
-      })(cfg),
-    );
-    queueWizardPrompts({
-      select: ["local", "firecrawl"],
-      confirm: [true, false],
-      text: "fc-entered-key",
-    });
+    const originalFirecrawlApiKey = process.env.FIRECRAWL_API_KEY;
+    process.env.FIRECRAWL_API_KEY = "fc-from-env";
+    try {
+      setupBaseWizardState();
+      mocks.resolveExistingKey.mockReturnValue(undefined);
+      mocks.hasExistingKey.mockReturnValue(false);
+      mocks.hasKeyInEnv.mockReturnValue(false);
+      mocks.applySearchKey.mockImplementation(
+        (cfg: OpenClawConfig, provider: string, key: string) =>
+          createEnabledWebSearchConfig(provider, {
+            enabled: true,
+            config: { webSearch: { apiKey: key } },
+          })(cfg),
+      );
+      queueWizardPrompts({
+        select: ["local", "firecrawl"],
+        confirm: [true, false],
+        text: "fc-entered-key",
+      });
 
-    await runWebConfigureWizard();
+      await runWebConfigureWizard();
 
-    expect(mocks.writeConfigFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tools: expect.objectContaining({
-          web: expect.objectContaining({
-            search: expect.objectContaining({
-              provider: "firecrawl",
-              enabled: true,
+      expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tools: expect.objectContaining({
+            web: expect.objectContaining({
+              search: expect.objectContaining({
+                provider: "firecrawl",
+                enabled: true,
+              }),
             }),
           }),
-        }),
-        plugins: expect.objectContaining({
-          entries: expect.objectContaining({
-            firecrawl: expect.objectContaining({
-              enabled: true,
-              config: expect.objectContaining({
-                webSearch: expect.objectContaining({ apiKey: "fc-entered-key" }),
+          plugins: expect.objectContaining({
+            entries: expect.objectContaining({
+              firecrawl: expect.objectContaining({
+                enabled: true,
+                config: expect.objectContaining({
+                  webSearch: expect.objectContaining({ apiKey: "fc-entered-key" }),
+                }),
               }),
             }),
           }),
         }),
-      }),
-    );
-    expect(mocks.clackText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: "Firecrawl API key (paste it here; leave blank to use FIRECRAWL_API_KEY)",
-      }),
-    );
+      );
+      expect(mocks.clackText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Firecrawl API key (paste it here; leave blank to use FIRECRAWL_API_KEY)",
+        }),
+      );
+    } finally {
+      if (originalFirecrawlApiKey === undefined) {
+        delete process.env.FIRECRAWL_API_KEY;
+      } else {
+        process.env.FIRECRAWL_API_KEY = originalFirecrawlApiKey;
+      }
+    }
   });
 
   it("applies provider selection side effects when a key already exists via secret ref or env", async () => {
-    setupBaseWizardState();
-    mocks.resolveExistingKey.mockReturnValue(undefined);
-    mocks.hasExistingKey.mockReturnValue(true);
-    mocks.hasKeyInEnv.mockReturnValue(false);
-    mocks.applySearchProviderSelection.mockImplementation((cfg: OpenClawConfig, provider: string) =>
-      createEnabledWebSearchConfig(provider, {
-        enabled: true,
-      })(cfg),
-    );
-    queueWizardPrompts({
-      select: ["local", "firecrawl"],
-      confirm: [true, false],
-    });
+    const originalFirecrawlApiKey = process.env.FIRECRAWL_API_KEY;
+    process.env.FIRECRAWL_API_KEY = "fc-from-env";
+    try {
+      setupBaseWizardState();
+      mocks.resolveExistingKey.mockReturnValue(undefined);
+      mocks.hasExistingKey.mockReturnValue(true);
+      mocks.hasKeyInEnv.mockReturnValue(false);
+      mocks.applySearchProviderSelection.mockImplementation(
+        (cfg: OpenClawConfig, provider: string) =>
+          createEnabledWebSearchConfig(provider, {
+            enabled: true,
+          })(cfg),
+      );
+      queueWizardPrompts({
+        select: ["local", "firecrawl"],
+        confirm: [true, false],
+      });
 
-    await runWebConfigureWizard();
+      await runWebConfigureWizard();
 
-    expect(mocks.applySearchProviderSelection).toHaveBeenCalledWith(
-      expect.objectContaining({
-        gateway: expect.objectContaining({ mode: "local" }),
-      }),
-      "firecrawl",
-    );
-    expect(mocks.writeConfigFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        plugins: expect.objectContaining({
-          entries: expect.objectContaining({
-            firecrawl: expect.objectContaining({
-              enabled: true,
+      expect(mocks.applySearchProviderSelection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gateway: expect.objectContaining({ mode: "local" }),
+        }),
+        "firecrawl",
+      );
+      expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plugins: expect.objectContaining({
+            entries: expect.objectContaining({
+              firecrawl: expect.objectContaining({
+                enabled: true,
+              }),
             }),
           }),
         }),
-      }),
-    );
-    expect(mocks.clackText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: "Firecrawl API key (leave blank to keep current or use FIRECRAWL_API_KEY)",
-      }),
-    );
+      );
+      expect(mocks.clackText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "Firecrawl API key (leave blank to keep current or use FIRECRAWL_API_KEY)",
+        }),
+      );
+    } finally {
+      if (originalFirecrawlApiKey === undefined) {
+        delete process.env.FIRECRAWL_API_KEY;
+      } else {
+        process.env.FIRECRAWL_API_KEY = originalFirecrawlApiKey;
+      }
+    }
   });
 
   it("uses provider-specific credential copy for Gemini web search", async () => {
