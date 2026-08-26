@@ -11,6 +11,7 @@ import {
   writeConfigFile,
 } from "../../config/config.js";
 import { formatConfigIssueLines } from "../../config/issue-format.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { resolveGatewayService } from "../../daemon/service.js";
 import {
   channelToNpmTag,
@@ -973,12 +974,15 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
         channel: requestedChannel,
       },
     };
-    await writeConfigFile(next);
+    const written = await writeConfigFilePreservingConcurrentKeys({
+      baseline: configSnapshot.config,
+      mutated: next,
+    });
     postUpdateConfigSnapshot = {
       ...configSnapshot,
-      parsed: next,
-      resolved: next,
-      config: next,
+      parsed: written,
+      resolved: written,
+      config: written,
     };
     if (!opts.json) {
       defaultRuntime.log(theme.muted(`Update channel set to ${requestedChannel}.`));

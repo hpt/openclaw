@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMergePatch } from "./merge-patch.js";
+import { applyMergePatch, createMergePatch, mergeConfigMutationsOntoFresh } from "./merge-patch.js";
 
 describe("applyMergePatch", () => {
   function makeAgentListBaseAndPatch() {
@@ -177,5 +177,42 @@ describe("applyMergePatch", () => {
       };
     };
     expect(merged.channels?.telegram?.allowFrom).toEqual(["333"]);
+  });
+});
+
+describe("mergeConfigMutationsOntoFresh", () => {
+  it("keeps concurrent keys that were added after the baseline snapshot", () => {
+    const baseline = {
+      channels: { telegram: { enabled: true } },
+    };
+    const mutated = {
+      channels: {
+        telegram: { enabled: true },
+        msteams: { enabled: true, tenantId: "tenant-1" },
+      },
+    };
+    const fresh = {
+      channels: { telegram: { enabled: true } },
+      mcp: { servers: { github: { command: "uvx" } } },
+    };
+
+    const merged = mergeConfigMutationsOntoFresh({ baseline, mutated, fresh });
+    expect(merged).toEqual({
+      channels: {
+        telegram: { enabled: true },
+        msteams: { enabled: true, tenantId: "tenant-1" },
+      },
+      mcp: { servers: { github: { command: "uvx" } } },
+    });
+  });
+
+  it("createMergePatch marks removed keys as null so overlays can delete intentionally", () => {
+    const patch = createMergePatch(
+      { channels: { telegram: { enabled: true }, slack: { enabled: true } } },
+      { channels: { telegram: { enabled: true } } },
+    );
+    expect(patch).toEqual({
+      channels: { slack: null },
+    });
   });
 });

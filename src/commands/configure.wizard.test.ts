@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   resolveExistingKey: vi.fn(),
   resolveSearchProviderOptions: vi.fn(),
   readConfigFileSnapshot: vi.fn(),
+  readConfigFileSnapshotForWrite: vi.fn(),
   writeConfigFile: vi.fn(),
   resolveGatewayPort: vi.fn(),
   ensureControlUiAssetsBuilt: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@clack/prompts", () => ({
 vi.mock("../config/config.js", () => ({
   CONFIG_PATH: "~/.openclaw/openclaw.json",
   readConfigFileSnapshot: mocks.readConfigFileSnapshot,
+  readConfigFileSnapshotForWrite: mocks.readConfigFileSnapshotForWrite,
   writeConfigFile: mocks.writeConfigFile,
   resolveGatewayPort: mocks.resolveGatewayPort,
 }));
@@ -169,6 +171,10 @@ function createEnabledWebSearchConfig(provider: string, pluginEntry: Record<stri
 
 function setupBaseWizardState() {
   mocks.readConfigFileSnapshot.mockResolvedValue(EMPTY_CONFIG_SNAPSHOT);
+  mocks.readConfigFileSnapshotForWrite.mockImplementation(async () => ({
+    snapshot: await mocks.readConfigFileSnapshot(),
+    writeOptions: {},
+  }));
   mocks.resolveGatewayPort.mockReturnValue(18789);
   mocks.probeGatewayReachable.mockResolvedValue({ ok: false });
   mocks.resolveControlUiLinks.mockReturnValue({ wsUrl: "ws://127.0.0.1:18789" });
@@ -226,6 +232,50 @@ describe("runConfigureWizard", () => {
     expect(mocks.writeConfigFile).toHaveBeenCalledWith(
       expect.objectContaining({
         gateway: expect.objectContaining({ mode: "local" }),
+      }),
+    );
+  });
+
+  it("preserves concurrent config keys added while the wizard is running", async () => {
+    setupBaseWizardState();
+    const baseline = {
+      channels: { telegram: { enabled: true } },
+    } as OpenClawConfig;
+    mocks.readConfigFileSnapshot.mockResolvedValue({
+      exists: true,
+      valid: true,
+      config: baseline,
+      issues: [],
+    });
+    mocks.readConfigFileSnapshotForWrite.mockResolvedValue({
+      snapshot: {
+        exists: true,
+        valid: true,
+        config: {
+          channels: { telegram: { enabled: true } },
+          mcp: { servers: { github: { command: "uvx" } } },
+        },
+      },
+      writeOptions: {},
+    });
+    queueWizardPrompts({
+      select: ["local", "__continue"],
+      confirm: [false],
+    });
+
+    await runConfigureWizard({ command: "configure" }, createRuntime());
+
+    expect(mocks.writeConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gateway: expect.objectContaining({ mode: "local" }),
+        channels: expect.objectContaining({
+          telegram: expect.objectContaining({ enabled: true }),
+        }),
+        mcp: expect.objectContaining({
+          servers: expect.objectContaining({
+            github: expect.objectContaining({ command: "uvx" }),
+          }),
+        }),
       }),
     );
   });

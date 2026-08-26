@@ -10,8 +10,8 @@ import {
   DEFAULT_GATEWAY_PORT,
   readConfigFileSnapshot,
   resolveGatewayPort,
-  writeConfigFile,
 } from "../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { normalizeSecretInputString } from "../config/types.secrets.js";
 import {
   buildPluginCompatibilityNotices,
@@ -86,6 +86,7 @@ export async function runSetupWizard(
 
   const snapshot = await readConfigFileSnapshot();
   let baseConfig: OpenClawConfig = snapshot.valid ? (snapshot.exists ? snapshot.config : {}) : {};
+  const persistBaseline = structuredClone(baseConfig);
 
   if (snapshot.exists && !snapshot.valid) {
     await prompter.note(onboardHelpers.summarizeExistingConfig(baseConfig), "Invalid config");
@@ -413,7 +414,10 @@ export async function runSetupWizard(
       secretInputMode: opts.secretInputMode,
     });
     nextConfig = onboardHelpers.applyWizardMetadata(nextConfig, { command: "onboard", mode });
-    await writeConfigFile(nextConfig);
+    await writeConfigFilePreservingConcurrentKeys({
+      baseline: persistBaseline,
+      mutated: nextConfig,
+    });
     logConfigUpdated(runtime);
     await prompter.outro("Remote gateway configured.");
     return;
@@ -544,7 +548,10 @@ export async function runSetupWizard(
     });
   }
 
-  await writeConfigFile(nextConfig);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline: persistBaseline,
+    mutated: nextConfig,
+  });
   const { logConfigUpdated } = await import("../config/logging.js");
   logConfigUpdated(runtime);
   await onboardHelpers.ensureWorkspaceAndSessions(workspaceDir, runtime, {
@@ -573,7 +580,10 @@ export async function runSetupWizard(
   nextConfig = await setupInternalHooks(nextConfig, runtime, prompter);
 
   nextConfig = onboardHelpers.applyWizardMetadata(nextConfig, { command: "onboard", mode });
-  await writeConfigFile(nextConfig);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline: persistBaseline,
+    mutated: nextConfig,
+  });
 
   const { finalizeSetupWizard } = await import("./setup.finalize.js");
   const { launchedTui } = await finalizeSetupWizard({

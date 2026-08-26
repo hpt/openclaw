@@ -1,7 +1,8 @@
 import { formatCliCommand } from "../../cli/command-format.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { resolveGatewayPort, writeConfigFile } from "../../config/config.js";
+import { resolveGatewayPort } from "../../config/config.js";
 import { logConfigUpdated } from "../../config/logging.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { DEFAULT_GATEWAY_DAEMON_RUNTIME } from "../daemon-runtime.js";
 import { applyLocalSetupWorkspaceConfig } from "../onboard-config.js";
@@ -72,6 +73,7 @@ export async function runNonInteractiveLocalSetup(params: {
   runtime: RuntimeEnv;
   baseConfig: OpenClawConfig;
 }) {
+  const persistBaseline = structuredClone(params.baseConfig);
   const { opts, runtime, baseConfig } = params;
   const mode = "local" as const;
 
@@ -126,7 +128,10 @@ export async function runNonInteractiveLocalSetup(params: {
   nextConfig = applyNonInteractiveSkillsConfig({ nextConfig, opts, runtime });
 
   nextConfig = applyWizardMetadata(nextConfig, { command: "onboard", mode });
-  await writeConfigFile(nextConfig);
+  await writeConfigFilePreservingConcurrentKeys({
+    baseline: persistBaseline,
+    mutated: nextConfig,
+  });
   logConfigUpdated(runtime);
 
   await ensureWorkspaceAndSessions(workspaceDir, runtime, {
