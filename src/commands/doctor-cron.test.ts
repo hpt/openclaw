@@ -195,6 +195,80 @@ describe("maybeRepairLegacyCronStore", () => {
     );
   });
 
+  it("reloads cron store after confirm so concurrent job writes are not clobbered", async () => {
+    const storePath = await makeTempStorePath();
+    await writeCronStore(storePath, [createLegacyCronJob()]);
+
+    let releaseConfirm: ((value: boolean) => void) | undefined;
+    let confirmStarted = false;
+    const confirmGate = new Promise<boolean>((resolve) => {
+      releaseConfirm = resolve;
+    });
+    const noteSpy = vi.spyOn(noteModule, "note").mockImplementation(() => {});
+
+    const repairPromise = maybeRepairLegacyCronStore({
+      cfg: createCronConfig(storePath),
+      options: {},
+      prompter: {
+        confirm: vi.fn(async () => {
+          confirmStarted = true;
+          return confirmGate;
+        }),
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(confirmStarted).toBe(true);
+    });
+
+    const current = JSON.parse(await fs.readFile(storePath, "utf-8")) as {
+      jobs: Array<Record<string, unknown>>;
+    };
+    await writeCronStore(storePath, [
+      {
+        ...current.jobs[0],
+        state: { lastRunAtMs: 1_700_000_000_000 },
+      },
+      {
+        id: "new-job",
+        name: "New job",
+        enabled: true,
+        createdAtMs: Date.parse("2026-03-01T00:00:00.000Z"),
+        updatedAtMs: Date.parse("2026-03-01T00:00:00.000Z"),
+        schedule: { kind: "every", everyMs: 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "now",
+        payload: { kind: "systemEvent", text: "new" },
+        state: {},
+      },
+    ]);
+
+    releaseConfirm?.(true);
+    await repairPromise;
+
+    const persisted = JSON.parse(await fs.readFile(storePath, "utf-8")) as {
+      jobs: Array<Record<string, unknown>>;
+    };
+    expect(persisted.jobs.map((job) => String(job.id ?? job.jobId)).toSorted()).toEqual([
+      "legacy-job",
+      "new-job",
+    ]);
+    const legacy = persisted.jobs.find((job) => job.id === "legacy-job");
+    expect(legacy?.jobId).toBeUndefined();
+    expect(legacy?.notify).toBeUndefined();
+    expect(legacy?.schedule).toMatchObject({
+      kind: "cron",
+      expr: "0 7 * * *",
+      tz: "UTC",
+    });
+    expect(legacy?.state).toMatchObject({ lastRunAtMs: 1_700_000_000_000 });
+    expect(persisted.jobs.find((job) => job.id === "new-job")?.name).toBe("New job");
+    expect(noteSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cron store normalized"),
+      "Doctor changes",
+    );
+  });
+
   it("migrates notify fallback none delivery jobs to cron.webhook", async () => {
     const storePath = await makeTempStorePath();
     await fs.mkdir(path.dirname(storePath), { recursive: true });
