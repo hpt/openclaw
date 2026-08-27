@@ -160,11 +160,22 @@ export async function maybeRepairLegacyCronStore(params: {
     return;
   }
 
+  // Re-read immediately before persist. The confirm prompt is a long I/O window
+  // (seconds to minutes) during which the gateway cron service may add jobs or
+  // write lastRunAtMs. Saving the pre-prompt snapshot would clobber those
+  // updates. Preview used the first load; persist must use a fresh one.
+  const latestStore = await loadCronStore(storePath);
+  const latestJobs = (latestStore.jobs ?? []) as unknown as Array<Record<string, unknown>>;
+  if (latestJobs.length === 0) {
+    return;
+  }
+
+  const latestNormalized = normalizeStoredCronJobs(latestJobs);
   const notifyMigration = migrateLegacyNotifyFallback({
-    jobs: rawJobs,
+    jobs: latestJobs,
     legacyWebhook,
   });
-  const changed = normalized.mutated || notifyMigration.changed;
+  const changed = latestNormalized.mutated || notifyMigration.changed;
   if (!changed && notifyMigration.warnings.length === 0) {
     return;
   }
@@ -172,7 +183,7 @@ export async function maybeRepairLegacyCronStore(params: {
   if (changed) {
     await saveCronStore(storePath, {
       version: 1,
-      jobs: rawJobs as unknown as CronJob[],
+      jobs: latestJobs as unknown as CronJob[],
     });
     note(`Cron store normalized at ${shortenHomePath(storePath)}.`, "Doctor changes");
   }
