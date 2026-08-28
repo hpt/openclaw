@@ -10,6 +10,8 @@ import {
 } from "../../config/sessions/paths.js";
 import { loadSessionStore } from "../../config/sessions/store.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
+import { SafeOpenError, writeFileWithinRoot } from "../../infra/fs-safe.js";
+import { expandHomePrefix } from "../../infra/home-dir.js";
 import type { ReplyPayload } from "../types.js";
 import { resolveCommandsSystemPromptBundle } from "./commands-system-prompt.js";
 import type { HandleCommandsParams } from "./commands-types.js";
@@ -109,6 +111,33 @@ function parseExportArgs(commandBodyNormalized: string): { outputPath?: string }
   return { outputPath };
 }
 
+export const EXPORT_SESSION_PATH_ERROR = "Export path must stay inside the agent workspace.";
+
+export function resolveExportSessionOutputPath(params: {
+  outputPath?: string;
+  workspaceDir: string;
+  sessionId: string;
+  now?: Date;
+}): { relativePath: string; absolutePath: string } | { error: string } {
+  const workspaceRoot = path.resolve(params.workspaceDir);
+  const timestamp = (params.now ?? new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const defaultFileName = `openclaw-session-${params.sessionId.slice(0, 8)}-${timestamp}.html`;
+  const raw = params.outputPath?.trim();
+  const resolved = raw
+    ? path.isAbsolute(raw) || raw.startsWith("~")
+      ? path.resolve(raw.startsWith("~") ? expandHomePrefix(raw) : raw)
+      : path.resolve(workspaceRoot, raw)
+    : path.join(workspaceRoot, defaultFileName);
+  const relative = path.relative(workspaceRoot, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return { error: EXPORT_SESSION_PATH_ERROR };
+  }
+  return {
+    relativePath: relative,
+    absolutePath: resolved,
+  };
+}
+
 export async function buildExportSessionReply(params: HandleCommandsParams): Promise<ReplyPayload> {
   const args = parseExportArgs(params.command.commandBodyNormalized);
 
@@ -142,6 +171,15 @@ export async function buildExportSessionReply(params: HandleCommandsParams): Pro
     return { text: `❌ Session file not found: ${sessionFile}` };
   }
 
+  const output = resolveExportSessionOutputPath({
+    outputPath: args.outputPath,
+    workspaceDir: params.workspaceDir,
+    sessionId: entry.sessionId,
+  });
+  if ("error" in output) {
+    return { text: `❌ ${output.error}` };
+  }
+
   // 2. Load session entries
   const sessionManager = SessionManager.open(sessionFile);
   const entries = sessionManager.getEntries();
@@ -167,28 +205,23 @@ export async function buildExportSessionReply(params: HandleCommandsParams): Pro
   // 5. Generate HTML
   const html = generateHtml(sessionData);
 
-  // 6. Determine output path
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const defaultFileName = `openclaw-session-${entry.sessionId.slice(0, 8)}-${timestamp}.html`;
-  const outputPath = args.outputPath
-    ? path.resolve(
-        args.outputPath.startsWith("~")
-          ? args.outputPath.replace("~", process.env.HOME ?? "")
-          : args.outputPath,
-      )
-    : path.join(params.workspaceDir, defaultFileName);
-
-  // Ensure directory exists
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  try {
+    await writeFileWithinRoot({
+      rootDir: params.workspaceDir,
+      relativePath: output.relativePath,
+      data: html,
+    });
+  } catch (err) {
+    const reason =
+      err instanceof SafeOpenError
+        ? EXPORT_SESSION_PATH_ERROR
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return { text: `❌ Failed to write export file: ${reason}` };
   }
 
-  // 7. Write file
-  fs.writeFileSync(outputPath, html, "utf-8");
-
-  const relativePath = path.relative(params.workspaceDir, outputPath);
-  const displayPath = relativePath.startsWith("..") ? outputPath : relativePath;
+  const displayPath = output.relativePath;
 
   return {
     text: [
