@@ -40,6 +40,7 @@ import {
   validateSessionsResolveParams,
   validateSessionsSendParams,
 } from "../protocol/index.js";
+import { compactSessionTranscriptFile } from "../session-compact.js";
 import {
   archiveSessionTranscriptsForSession,
   cleanupSessionBeforeMutation,
@@ -48,7 +49,6 @@ import {
 } from "../session-reset-service.js";
 import { reactivateCompletedSubagentSession } from "../session-subagent-reactivation.js";
 import {
-  archiveFileOnDisk,
   listSessionsFromStore,
   loadCombinedSessionStoreForGateway,
   loadGatewaySessionRow,
@@ -1036,7 +1036,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const messages = limit < allMessages.length ? allMessages.slice(-limit) : allMessages;
     respond(true, { messages }, undefined);
   },
-  "sessions.compact": async ({ params, respond, context }) => {
+  "sessions.compact": async ({ params, respond, context, req, client, isWebchatConnect }) => {
     if (!assertValidParams(params, validateSessionsCompactParams, "sessions.compact", respond)) {
       return;
     }
@@ -1073,6 +1073,20 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
+    const interruptResult = await interruptSessionRunIfActive({
+      req,
+      context,
+      client,
+      isWebchatConnect,
+      requestedKey: key,
+      canonicalKey: target.canonicalKey,
+      sessionId,
+    });
+    if (interruptResult.error) {
+      respond(false, undefined, interruptResult.error);
+      return;
+    }
+
     const filePath = resolveSessionTranscriptCandidates(
       sessionId,
       storePath,
@@ -1093,25 +1107,20 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       return;
     }
 
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length <= maxLines) {
+    const compactResult = await compactSessionTranscriptFile({ filePath, maxLines });
+    if (!compactResult.compacted) {
       respond(
         true,
         {
           ok: true,
           key: target.canonicalKey,
           compacted: false,
-          kept: lines.length,
+          kept: compactResult.kept,
         },
         undefined,
       );
       return;
     }
-
-    const archived = archiveFileOnDisk(filePath, "bak");
-    const keptLines = lines.slice(-maxLines);
-    fs.writeFileSync(filePath, `${keptLines.join("\n")}\n`, "utf-8");
 
     await updateSessionStore(storePath, (store) => {
       const entryKey = compactTarget.primaryKey;
@@ -1132,8 +1141,8 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         ok: true,
         key: target.canonicalKey,
         compacted: true,
-        archived,
-        kept: keptLines.length,
+        archived: compactResult.archived,
+        kept: compactResult.kept,
       },
       undefined,
     );
