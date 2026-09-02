@@ -1089,6 +1089,40 @@ describe("gateway server sessions", () => {
     ws.close();
   });
 
+  test("sessions.compact interrupts an active run before rewriting the transcript", async () => {
+    const { dir } = await createSessionStoreDir();
+    await fs.writeFile(
+      path.join(dir, "sess-main.jsonl"),
+      `${Array.from({ length: 6 }, (_, idx) => JSON.stringify({ role: "user", content: `line ${idx}` })).join("\n")}\n`,
+      "utf-8",
+    );
+    await writeSessionStore({
+      entries: {
+        main: { sessionId: "sess-main", updatedAt: Date.now() },
+      },
+    });
+
+    embeddedRunMock.activeIds.add("sess-main");
+    embeddedRunMock.waitResults.set("sess-main", true);
+
+    const { ws } = await openClient();
+    const compacted = await rpcReq<{ ok: true; compacted: boolean; kept: number }>(
+      ws,
+      "sessions.compact",
+      { key: "main", maxLines: 3 },
+    );
+    expect(compacted.ok).toBe(true);
+    expect(compacted.payload?.compacted).toBe(true);
+    expect(compacted.payload?.kept).toBe(3);
+    expect(embeddedRunMock.abortCalls).toEqual(["sess-main"]);
+    expect(embeddedRunMock.waitCalls).toEqual(["sess-main"]);
+    const compactedLines = (await fs.readFile(path.join(dir, "sess-main.jsonl"), "utf-8"))
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+    expect(compactedLines).toHaveLength(3);
+    ws.close();
+  });
+
   test("sessions.delete rejects main and aborts active runs", async () => {
     const { dir } = await createSessionStoreDir();
     await writeSingleLineSession(dir, "sess-main", "hello");
