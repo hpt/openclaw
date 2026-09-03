@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMergePatch } from "./merge-patch.js";
+import { applyMergePatch, createMergePatch } from "./merge-patch.js";
 
 describe("applyMergePatch", () => {
   function makeAgentListBaseAndPatch() {
@@ -177,5 +177,18 @@ describe("applyMergePatch", () => {
       };
     };
     expect(merged.channels?.telegram?.allowFrom).toEqual(["333"]);
+  });
+});
+
+describe("createMergePatch", () => {
+  it("marks keys missing from the stale target as deletes", () => {
+    expect(
+      createMergePatch(
+        { channels: { telegram: { botToken: "a" } }, mcp: { servers: { docs: { command: "x" } } } },
+        { channels: { telegram: { botToken: "a" } } },
+      ),
+    ).toEqual({
+      mcp: null,
+    });
   });
 });

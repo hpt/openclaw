@@ -5,7 +5,8 @@ import {
   normalizeChannelId,
 } from "../channels/plugins/index.js";
 import { resolveInstallableChannelPlugin } from "../commands/channel-setup/channel-plugin-resolution.js";
-import { loadConfig, writeConfigFile, type OpenClawConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { setVerbose } from "../globals.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -131,28 +132,27 @@ export async function runChannelLogin(
   runtime: RuntimeEnv = defaultRuntime,
 ) {
   const loadedCfg = loadConfig();
-  const { cfg, configChanged, channelInput, plugin } = await resolveChannelPluginForMode(
-    opts,
-    "login",
-    loadedCfg,
-    runtime,
-  );
-  if (configChanged) {
-    await writeConfigFile(cfg);
+  const resolved = await resolveChannelPluginForMode(opts, "login", loadedCfg, runtime);
+  let cfg = resolved.cfg;
+  if (resolved.configChanged) {
+    cfg = await writeConfigFilePreservingConcurrentKeys({
+      baseline: loadedCfg,
+      next: cfg,
+    });
   }
-  const login = plugin.auth?.login;
+  const login = resolved.plugin.auth?.login;
   if (!login) {
-    throw new Error(`Channel ${channelInput} does not support login`);
+    throw new Error(`Channel ${resolved.channelInput} does not support login`);
   }
   // Auth-only flow: do not mutate channel config here.
   setVerbose(Boolean(opts.verbose));
-  const { accountId } = resolveAccountContext(plugin, opts, cfg);
+  const { accountId } = resolveAccountContext(resolved.plugin, opts, cfg);
   await login({
     cfg,
     accountId,
     runtime,
     verbose: Boolean(opts.verbose),
-    channelInput,
+    channelInput: resolved.channelInput,
   });
 }
 
@@ -161,22 +161,21 @@ export async function runChannelLogout(
   runtime: RuntimeEnv = defaultRuntime,
 ) {
   const loadedCfg = loadConfig();
-  const { cfg, configChanged, channelInput, plugin } = await resolveChannelPluginForMode(
-    opts,
-    "logout",
-    loadedCfg,
-    runtime,
-  );
-  if (configChanged) {
-    await writeConfigFile(cfg);
+  const resolved = await resolveChannelPluginForMode(opts, "logout", loadedCfg, runtime);
+  let cfg = resolved.cfg;
+  if (resolved.configChanged) {
+    cfg = await writeConfigFilePreservingConcurrentKeys({
+      baseline: loadedCfg,
+      next: cfg,
+    });
   }
-  const logoutAccount = plugin.gateway?.logoutAccount;
+  const logoutAccount = resolved.plugin.gateway?.logoutAccount;
   if (!logoutAccount) {
-    throw new Error(`Channel ${channelInput} does not support logout`);
+    throw new Error(`Channel ${resolved.channelInput} does not support logout`);
   }
   // Auth-only flow: resolve account + clear session state only.
-  const { accountId } = resolveAccountContext(plugin, opts, cfg);
-  const account = plugin.config.resolveAccount(cfg, accountId);
+  const { accountId } = resolveAccountContext(resolved.plugin, opts, cfg);
+  const account = resolved.plugin.config.resolveAccount(cfg, accountId);
   await logoutAccount({
     cfg,
     accountId,

@@ -15,6 +15,7 @@ function getRuntimeCapture(): CliRuntimeCapture {
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   writeConfigFile: vi.fn(),
+  writeConfigFilePreservingConcurrentKeys: vi.fn(),
   resolveInstallableChannelPlugin: vi.fn(),
   resolveMessageChannelSelection: vi.fn(),
   getChannelPlugin: vi.fn(),
@@ -24,6 +25,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../config/config.js", () => ({
   loadConfig: mocks.loadConfig,
   writeConfigFile: mocks.writeConfigFile,
+}));
+
+vi.mock("../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: mocks.writeConfigFilePreservingConcurrentKeys,
 }));
 
 vi.mock("../commands/channel-setup/channel-plugin-resolution.js", () => ({
@@ -54,6 +59,10 @@ describe("registerDirectoryCli", () => {
     getRuntimeCapture().resetRuntimeCapture();
     mocks.loadConfig.mockReturnValue({ channels: {} });
     mocks.writeConfigFile.mockResolvedValue(undefined);
+    mocks.writeConfigFilePreservingConcurrentKeys.mockImplementation(async ({ next }) => {
+      await mocks.writeConfigFile(next);
+      return next;
+    });
     mocks.resolveChannelDefaultAccountId.mockReturnValue("default");
     mocks.resolveMessageChannelSelection.mockResolvedValue({
       channel: "slack",

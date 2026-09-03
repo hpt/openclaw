@@ -2,7 +2,8 @@ import type { Command } from "commander";
 import { resolveChannelDefaultAccountId } from "../channels/plugins/helpers.js";
 import { getChannelPlugin } from "../channels/plugins/index.js";
 import { resolveInstallableChannelPlugin } from "../commands/channel-setup/channel-plugin-resolution.js";
-import { loadConfig, writeConfigFile } from "../config/config.js";
+import { loadConfig } from "../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../config/persist-config-mutations.js";
 import { danger } from "../globals.js";
 import { resolveMessageChannelSelection } from "../infra/outbound/channel-selection.js";
 import { defaultRuntime } from "../runtime.js";
@@ -109,8 +110,10 @@ export function registerDirectoryCli(program: Command) {
         })
       : null;
     if (resolvedExplicit?.configChanged) {
-      cfg = resolvedExplicit.cfg;
-      await writeConfigFile(cfg);
+      cfg = await writeConfigFilePreservingConcurrentKeys({
+        baseline: cfg,
+        next: resolvedExplicit.cfg,
+      });
     }
     const selection = explicitChannel
       ? {

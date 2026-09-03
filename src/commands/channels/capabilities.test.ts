@@ -11,6 +11,7 @@ const errors: string[] = [];
 const resolveDefaultAccountId = () => DEFAULT_ACCOUNT_ID;
 const mocks = vi.hoisted(() => ({
   writeConfigFile: vi.fn(),
+  writeConfigFilePreservingConcurrentKeys: vi.fn(),
   resolveInstallableChannelPlugin: vi.fn(),
 }));
 
@@ -33,6 +34,10 @@ vi.mock("../../config/config.js", async (importOriginal) => {
     writeConfigFile: mocks.writeConfigFile,
   };
 });
+
+vi.mock("../../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: mocks.writeConfigFilePreservingConcurrentKeys,
+}));
 
 vi.mock("../channel-setup/channel-plugin-resolution.js", () => ({
   resolveInstallableChannelPlugin: mocks.resolveInstallableChannelPlugin,
@@ -96,6 +101,10 @@ describe("channelsCapabilitiesCommand", () => {
     resetOutput();
     vi.clearAllMocks();
     mocks.writeConfigFile.mockResolvedValue(undefined);
+    mocks.writeConfigFilePreservingConcurrentKeys.mockImplementation(async ({ next }) => {
+      await mocks.writeConfigFile(next);
+      return next;
+    });
     mocks.resolveInstallableChannelPlugin.mockResolvedValue({
       cfg: { channels: {} },
       configChanged: false,

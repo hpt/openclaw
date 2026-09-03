@@ -10,7 +10,8 @@ import type {
   ChannelCapabilitiesDisplayLine,
   ChannelPlugin,
 } from "../../channels/plugins/types.js";
-import { writeConfigFile, type OpenClawConfig } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/config.js";
+import { writeConfigFilePreservingConcurrentKeys } from "../../config/persist-config-mutations.js";
 import { danger } from "../../globals.js";
 import { defaultRuntime, type RuntimeEnv, writeRuntimeJson } from "../../runtime.js";
 import { theme } from "../../terminal/theme.js";
@@ -239,8 +240,10 @@ export async function channelsCapabilitiesCommand(
             allowInstall: true,
           });
           if (resolved.configChanged) {
-            cfg = resolved.cfg;
-            await writeConfigFile(cfg);
+            cfg = await writeConfigFilePreservingConcurrentKeys({
+              baseline: cfg,
+              next: resolved.cfg,
+            });
           }
           return resolved.plugin ? [resolved.plugin] : null;
         })();
