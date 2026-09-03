@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   normalizeChannelId: vi.fn(),
   loadConfig: vi.fn(),
   writeConfigFile: vi.fn(),
+  writeConfigFilePreservingConcurrentKeys: vi.fn(),
   setVerbose: vi.fn(),
   createClackPrompter: vi.fn(),
   ensureChannelSetupPluginInstalled: vi.fn(),
@@ -44,6 +45,10 @@ vi.mock("../channels/plugins/index.js", () => ({
 vi.mock("../config/config.js", () => ({
   loadConfig: mocks.loadConfig,
   writeConfigFile: mocks.writeConfigFile,
+}));
+
+vi.mock("../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: mocks.writeConfigFilePreservingConcurrentKeys,
 }));
 
 vi.mock("../globals.js", () => ({
@@ -80,6 +85,10 @@ describe("channel-auth", () => {
     mocks.listChannelPluginCatalogEntries.mockReturnValue([]);
     mocks.loadConfig.mockReturnValue({ channels: { whatsapp: {} } });
     mocks.writeConfigFile.mockResolvedValue(undefined);
+    mocks.writeConfigFilePreservingConcurrentKeys.mockImplementation(async ({ next }) => {
+      await mocks.writeConfigFile(next);
+      return next;
+    });
     mocks.listChannelPlugins.mockReturnValue([plugin]);
     mocks.resolveDefaultAgentId.mockReturnValue("main");
     mocks.resolveAgentWorkspaceDir.mockReturnValue("/tmp/workspace");

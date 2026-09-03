@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getChannelsCommandSecretTargetIds: vi.fn(() => []),
   loadConfig: vi.fn(),
   writeConfigFile: vi.fn(),
+  writeConfigFilePreservingConcurrentKeys: vi.fn(),
   resolveMessageChannelSelection: vi.fn(),
   resolveInstallableChannelPlugin: vi.fn(),
   getChannelPlugin: vi.fn(),
@@ -21,6 +22,10 @@ vi.mock("../cli/command-secret-targets.js", () => ({
 vi.mock("../config/config.js", () => ({
   loadConfig: mocks.loadConfig,
   writeConfigFile: mocks.writeConfigFile,
+}));
+
+vi.mock("../config/persist-config-mutations.js", () => ({
+  writeConfigFilePreservingConcurrentKeys: mocks.writeConfigFilePreservingConcurrentKeys,
 }));
 
 vi.mock("../infra/outbound/channel-selection.js", () => ({
@@ -48,6 +53,10 @@ describe("channelsResolveCommand", () => {
     vi.clearAllMocks();
     mocks.loadConfig.mockReturnValue({ channels: {} });
     mocks.writeConfigFile.mockResolvedValue(undefined);
+    mocks.writeConfigFilePreservingConcurrentKeys.mockImplementation(async ({ next }) => {
+      await mocks.writeConfigFile(next);
+      return next;
+    });
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig: { channels: {} },
       diagnostics: [],
