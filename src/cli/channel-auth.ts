@@ -5,7 +5,12 @@ import {
   normalizeChannelId,
 } from "../channels/plugins/index.js";
 import { resolveInstallableChannelPlugin } from "../commands/channel-setup/channel-plugin-resolution.js";
-import { loadConfig, writeConfigFile, type OpenClawConfig } from "../config/config.js";
+import {
+  loadConfig,
+  readConfigFileSnapshot,
+  writeConfigFile,
+  type OpenClawConfig,
+} from "../config/config.js";
 import { setVerbose } from "../globals.js";
 import { isBlockedObjectKey } from "../infra/prototype-keys.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
@@ -174,11 +179,15 @@ export async function runChannelLogout(
   if (!logoutAccount) {
     throw new Error(`Channel ${channelInput} does not support logout`);
   }
+  // Plugin install / catalog resolve can take seconds. Re-read disk so token
+  // clears do not merge-patch-delete keys written concurrently in that window.
+  const snapshot = await readConfigFileSnapshot();
+  const cfgForLogout = snapshot.valid ? (snapshot.config ?? cfg) : cfg;
   // Auth-only flow: resolve account + clear session state only.
-  const { accountId } = resolveAccountContext(plugin, opts, cfg);
-  const account = plugin.config.resolveAccount(cfg, accountId);
+  const { accountId } = resolveAccountContext(plugin, opts, cfgForLogout);
+  const account = plugin.config.resolveAccount(cfgForLogout, accountId);
   await logoutAccount({
-    cfg,
+    cfg: cfgForLogout,
     accountId,
     account,
     runtime,

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   listChannelPlugins: vi.fn(),
   normalizeChannelId: vi.fn(),
   loadConfig: vi.fn(),
+  readConfigFileSnapshot: vi.fn(),
   writeConfigFile: vi.fn(),
   setVerbose: vi.fn(),
   createClackPrompter: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("../channels/plugins/index.js", () => ({
 
 vi.mock("../config/config.js", () => ({
   loadConfig: mocks.loadConfig,
+  readConfigFileSnapshot: mocks.readConfigFileSnapshot,
   writeConfigFile: mocks.writeConfigFile,
 }));
 
@@ -79,6 +81,10 @@ describe("channel-auth", () => {
     mocks.getChannelPluginCatalogEntry.mockReturnValue(undefined);
     mocks.listChannelPluginCatalogEntries.mockReturnValue([]);
     mocks.loadConfig.mockReturnValue({ channels: { whatsapp: {} } });
+    mocks.readConfigFileSnapshot.mockResolvedValue({
+      valid: true,
+      config: { channels: { whatsapp: {} } },
+    });
     mocks.writeConfigFile.mockResolvedValue(undefined);
     mocks.listChannelPlugins.mockReturnValue([plugin]);
     mocks.resolveDefaultAgentId.mockReturnValue("main");
@@ -314,6 +320,29 @@ describe("channel-auth", () => {
       runtime,
     });
     expect(mocks.setVerbose).not.toHaveBeenCalled();
+  });
+
+  it("re-reads config before logout persist so concurrent keys survive plugin resolve", async () => {
+    const freshCfg = {
+      channels: { whatsapp: {} },
+      mcp: { servers: { docs: { command: "uvx" } } },
+    };
+    mocks.readConfigFileSnapshot.mockResolvedValue({
+      valid: true,
+      config: freshCfg,
+    });
+    mocks.resolveAccount.mockReturnValue({ id: "fresh-account" });
+
+    await runChannelLogout({ channel: "whatsapp", account: "acct-2" }, runtime);
+
+    expect(mocks.readConfigFileSnapshot).toHaveBeenCalled();
+    expect(mocks.resolveAccount).toHaveBeenCalledWith(freshCfg, "acct-2");
+    expect(mocks.logoutAccount).toHaveBeenCalledWith({
+      cfg: freshCfg,
+      accountId: "acct-2",
+      account: { id: "fresh-account" },
+      runtime,
+    });
   });
 
   it("throws when channel does not support logout", async () => {
