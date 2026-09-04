@@ -30,6 +30,29 @@ type ChannelLogoutPayload = {
   [key: string]: unknown;
 };
 
+function resolveAccountForLogout(params: {
+  plugin: ChannelPlugin;
+  cfg: OpenClawConfig;
+  accountId: string;
+  fallback: unknown;
+}) {
+  try {
+    return params.plugin.config.resolveAccount(params.cfg, params.accountId);
+  } catch {
+    return params.fallback;
+  }
+}
+
+async function resolveConfigAfterChannelStop(fallback: OpenClawConfig): Promise<OpenClawConfig> {
+  // Channel stop can wait on live sockets/polling. Re-read disk so logout
+  // persist does not merge-patch-delete keys written concurrently in that window.
+  const snapshot = await readConfigFileSnapshot();
+  if (!snapshot.valid) {
+    return fallback;
+  }
+  return snapshot.config ?? fallback;
+}
+
 export async function logoutChannelAccount(params: {
   channelId: ChannelId;
   accountId?: string | null;
@@ -44,10 +67,17 @@ export async function logoutChannelAccount(params: {
     DEFAULT_ACCOUNT_ID;
   const account = params.plugin.config.resolveAccount(params.cfg, resolvedAccountId);
   await params.context.stopChannel(params.channelId, resolvedAccountId);
-  const result = await params.plugin.gateway?.logoutAccount?.({
-    cfg: params.cfg,
+  const cfgForLogout = await resolveConfigAfterChannelStop(params.cfg);
+  const accountForLogout = resolveAccountForLogout({
+    plugin: params.plugin,
+    cfg: cfgForLogout,
     accountId: resolvedAccountId,
-    account,
+    fallback: account,
+  });
+  const result = await params.plugin.gateway?.logoutAccount?.({
+    cfg: cfgForLogout,
+    accountId: resolvedAccountId,
+    account: accountForLogout,
     runtime: defaultRuntime,
   });
   if (!result) {
