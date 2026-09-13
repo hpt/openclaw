@@ -1355,6 +1355,90 @@ describe("handleCommands /allowlist", () => {
     expect(writeConfigFileMock.mock.calls.length).toBe(previousWriteCount);
   });
 
+  it("blocks store-targeted /allowlist edits when the origin channel disables writes", async () => {
+    const cfg = {
+      commands: { text: true, config: true },
+      channels: { telegram: { allowFrom: ["123"], configWrites: false } },
+    } as OpenClawConfig;
+    const params = buildPolicyParams("/allowlist add dm --store 789", cfg);
+    params.command.senderIsOwner = true;
+    const result = await handleCommands(params);
+
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("channels.telegram.configWrites=true");
+    expect(addChannelAllowFromStoreEntryMock).not.toHaveBeenCalled();
+    expect(writeConfigFileMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks store-targeted cross-channel /allowlist edits when the origin channel disables writes", async () => {
+    const cfg = {
+      commands: { text: true, config: true },
+      channels: {
+        telegram: { allowFrom: ["123"], configWrites: false },
+        discord: { allowFrom: ["111"], configWrites: true },
+      },
+    } as OpenClawConfig;
+    const params = buildPolicyParams("/allowlist add dm --channel discord --store attacker", cfg, {
+      Provider: "telegram",
+      Surface: "telegram",
+    });
+    params.command.senderIsOwner = true;
+    const result = await handleCommands(params);
+
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("channels.telegram.configWrites=true");
+    expect(addChannelAllowFromStoreEntryMock).not.toHaveBeenCalled();
+    expect(writeConfigFileMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks config-targeted cross-channel /allowlist edits when the origin channel disables writes", async () => {
+    const previousWriteCount = writeConfigFileMock.mock.calls.length;
+    const cfg = {
+      commands: { text: true, config: true },
+      channels: {
+        telegram: { allowFrom: ["123"], configWrites: false },
+        discord: { allowFrom: ["111"], configWrites: true },
+      },
+    } as OpenClawConfig;
+    const params = buildPolicyParams("/allowlist add dm --channel discord --config 222", cfg, {
+      Provider: "telegram",
+      Surface: "telegram",
+    });
+    params.command.senderIsOwner = true;
+    const result = await handleCommands(params);
+
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("channels.telegram.configWrites=true");
+    expect(writeConfigFileMock.mock.calls.length).toBe(previousWriteCount);
+    expect(addChannelAllowFromStoreEntryMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks store-targeted /allowlist edits when the target account disables writes", async () => {
+    const cfg = {
+      commands: { text: true, config: true },
+      channels: {
+        telegram: {
+          configWrites: true,
+          accounts: {
+            work: { configWrites: false, allowFrom: ["123"] },
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const params = buildPolicyParams("/allowlist add dm --account work --store 789", cfg, {
+      AccountId: "default",
+      Provider: "telegram",
+      Surface: "telegram",
+    });
+    params.command.senderIsOwner = true;
+    const result = await handleCommands(params);
+
+    expect(result.shouldContinue).toBe(false);
+    expect(result.reply?.text).toContain("channels.telegram.accounts.work.configWrites=true");
+    expect(addChannelAllowFromStoreEntryMock).not.toHaveBeenCalled();
+    expect(writeConfigFileMock).not.toHaveBeenCalled();
+  });
+
   it("removes default-account entries from scoped and legacy pairing stores", async () => {
     removeChannelAllowFromStoreEntryMock
       .mockResolvedValueOnce({
