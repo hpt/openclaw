@@ -1,3 +1,4 @@
+import { resolveExplicitConfigWriteTarget } from "../../channels/plugins/config-writes.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import type { ChannelId } from "../../channels/plugins/types.js";
 import { normalizeChannelId } from "../../channels/registry.js";
@@ -23,7 +24,7 @@ import {
   requireCommandFlagEnabled,
   requireGatewayClientScopeForInternalChannel,
 } from "./command-gates.js";
-import type { CommandHandler } from "./commands-types.js";
+import type { CommandHandler, HandleCommandsParams } from "./commands-types.js";
 import { resolveConfigWriteDeniedText } from "./config-write-authorization.js";
 
 type AllowlistScope = "dm" | "group" | "all";
@@ -227,6 +228,22 @@ async function resolveAllowlistNames(params: {
   return mapResolvedAllowlistNames(resolved ?? []);
 }
 
+function resolveAllowlistMutationDeniedText(
+  params: HandleCommandsParams,
+  target: Parameters<typeof resolveConfigWriteDeniedText>[0]["target"],
+): string | null {
+  // Policy origin is the channel that issued the command, not --channel/--account.
+  const originChannelId = params.command.channelId ?? normalizeChannelId(params.command.channel);
+  return resolveConfigWriteDeniedText({
+    cfg: params.cfg,
+    channel: params.command.channel,
+    channelId: originChannelId,
+    accountId: params.ctx.AccountId,
+    gatewayClientScopes: params.ctx.GatewayClientScopes,
+    target,
+  });
+}
+
 async function readAllowlistConfig(params: {
   cfg: OpenClawConfig;
   channelId: ChannelId;
@@ -407,6 +424,15 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
 
   const shouldUpdateConfig = parsed.target !== "store";
   const shouldTouchStore = parsed.target !== "config" && Boolean(plugin?.pairing);
+  const deniedText = resolveAllowlistMutationDeniedText(params, { kind: "global" });
+  if (deniedText) {
+    return {
+      shouldContinue: false,
+      reply: {
+        text: deniedText,
+      },
+    };
+  }
 
   if (shouldUpdateConfig) {
     if (parsed.scope === "all") {
@@ -454,14 +480,7 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
         reply: { text: "⚠️ Invalid allowlist entry." },
       };
     }
-    const deniedText = resolveConfigWriteDeniedText({
-      cfg: params.cfg,
-      channel: params.command.channel,
-      channelId,
-      accountId: params.ctx.AccountId,
-      gatewayClientScopes: params.ctx.GatewayClientScopes,
-      target: editResult.writeTarget,
-    });
+    const deniedText = resolveAllowlistMutationDeniedText(params, editResult.writeTarget);
     if (deniedText) {
       return {
         shouldContinue: false,
@@ -513,6 +532,17 @@ export const handleAllowlistCommand: CommandHandler = async (params, allowTextCo
       reply: {
         text: `✅ ${scopeLabel} allowlist ${actionLabel}: ${targetLabel}.`,
       },
+    };
+  }
+
+  const storeDeniedText = resolveAllowlistMutationDeniedText(
+    params,
+    resolveExplicitConfigWriteTarget({ channelId, accountId }),
+  );
+  if (storeDeniedText) {
+    return {
+      shouldContinue: false,
+      reply: { text: storeDeniedText },
     };
   }
 
