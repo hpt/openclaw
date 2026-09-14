@@ -134,6 +134,7 @@ Notes:
 - `/new <model>` accepts a model alias, `provider/model`, or a provider name (fuzzy match); if no match, the text is treated as the message body.
 - For full provider usage breakdown, use `openclaw status --usage`.
 - `/allowlist add|remove` requires `commands.config=true` and honors channel `configWrites`.
+- `/plugins install|enable|disable` and `/mcp set|unset` also honor channel `configWrites` (origin-channel writes stay blocked when `channels.<provider>.configWrites=false`).
 - In multi-account channels, config-targeted `/allowlist --account <id>` and `/config set channels.<provider>.accounts.<id>...` also honor the target account's `configWrites`.
 - `/usage` controls the per-response usage footer; `/usage cost` prints a local cost summary from OpenClaw session logs.
 - `/restart` is enabled by default; set `commands.restart: false` to disable it.

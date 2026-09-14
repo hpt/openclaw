@@ -1,3 +1,4 @@
+import { normalizeChannelId } from "../../channels/registry.js";
 import {
   listConfiguredMcpServers,
   setConfiguredMcpServer,
@@ -11,6 +12,7 @@ import {
   requireGatewayClientScopeForInternalChannel,
 } from "./command-gates.js";
 import type { CommandHandler } from "./commands-types.js";
+import { resolveConfigWriteDeniedText } from "./config-write-authorization.js";
 import { parseMcpCommand } from "./mcp-commands.js";
 
 function renderJsonBlock(label: string, value: unknown): string {
@@ -93,6 +95,22 @@ export const handleMcpCommand: CommandHandler = async (params, allowTextCommands
   });
   if (missingAdminScope) {
     return missingAdminScope;
+  }
+
+  const channelId = params.command.channelId ?? normalizeChannelId(params.command.channel);
+  const deniedText = resolveConfigWriteDeniedText({
+    cfg: params.cfg,
+    channel: params.command.channel,
+    channelId,
+    accountId: params.ctx.AccountId,
+    gatewayClientScopes: params.ctx.GatewayClientScopes,
+    target: { kind: "global" },
+  });
+  if (deniedText) {
+    return {
+      shouldContinue: false,
+      reply: { text: deniedText },
+    };
   }
 
   if (mcpCommand.action === "set") {

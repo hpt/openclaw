@@ -80,4 +80,26 @@ describe("handleCommands /mcp", () => {
       expect(result.reply?.text).toContain('MCP server "remote" saved');
     });
   });
+
+  it("blocks set when the origin channel disables configWrites", async () => {
+    await withTempHome("openclaw-command-mcp-home-", async () => {
+      const workspaceDir = await workspaceHarness.createWorkspace();
+      const params = buildCommandTestParams(
+        '/mcp set context7={"command":"uvx","args":["context7-mcp"]}',
+        {
+          commands: {
+            text: true,
+            mcp: true,
+          },
+          channels: { whatsapp: { configWrites: false } },
+        },
+        undefined,
+        { workspaceDir },
+      );
+      params.command.senderIsOwner = true;
+
+      const result = await handleCommands(params);
+      expect(result.reply?.text).toContain("Config writes are disabled");
+    });
+  });
 });
