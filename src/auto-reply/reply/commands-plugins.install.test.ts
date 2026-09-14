@@ -198,4 +198,31 @@ describe("handleCommands /plugins install", () => {
       );
     });
   });
+
+  it("blocks install when the origin channel disables configWrites", async () => {
+    await withTempHome("openclaw-command-plugins-home-", async () => {
+      const workspaceDir = await workspaceHarness.createWorkspace();
+      const pluginDir = path.join(workspaceDir, "fixtures", "blocked-install-plugin");
+      await fs.mkdir(pluginDir, { recursive: true });
+
+      const params = buildCommandTestParams(
+        `/plugins install ${pluginDir}`,
+        {
+          commands: {
+            text: true,
+            plugins: true,
+          },
+          channels: { whatsapp: { configWrites: false } },
+        },
+        undefined,
+        { workspaceDir },
+      );
+      params.command.senderIsOwner = true;
+
+      const result = await handleCommands(params);
+      expect(result.reply?.text).toContain("Config writes are disabled");
+      expect(installPluginFromPathMock).not.toHaveBeenCalled();
+      expect(persistPluginInstallMock).not.toHaveBeenCalled();
+    });
+  });
 });

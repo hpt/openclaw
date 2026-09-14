@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { normalizeChannelId } from "../../channels/registry.js";
 import { buildNpmInstallRecordFields } from "../../cli/npm-resolution.js";
 import {
   buildPreferredClawHubSpec,
@@ -37,6 +38,7 @@ import {
   requireGatewayClientScopeForInternalChannel,
 } from "./command-gates.js";
 import type { CommandHandler } from "./commands-types.js";
+import { resolveConfigWriteDeniedText } from "./config-write-authorization.js";
 import { parsePluginsCommand } from "./plugins-commands.js";
 
 function renderJsonBlock(label: string, value: unknown): string {
@@ -391,6 +393,22 @@ export const handlePluginsCommand: CommandHandler = async (params, allowTextComm
   });
   if (missingAdminScope) {
     return missingAdminScope;
+  }
+
+  const channelId = params.command.channelId ?? normalizeChannelId(params.command.channel);
+  const deniedText = resolveConfigWriteDeniedText({
+    cfg: params.cfg,
+    channel: params.command.channel,
+    channelId,
+    accountId: params.ctx.AccountId,
+    gatewayClientScopes: params.ctx.GatewayClientScopes,
+    target: { kind: "global" },
+  });
+  if (deniedText) {
+    return {
+      shouldContinue: false,
+      reply: { text: deniedText },
+    };
   }
 
   if (pluginsCommand.action === "install") {

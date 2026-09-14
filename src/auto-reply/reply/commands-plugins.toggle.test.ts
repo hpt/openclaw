@@ -134,4 +134,37 @@ describe("handleCommands /plugins toggle", () => {
       }),
     );
   });
+
+  it("blocks enable when the origin channel disables configWrites", async () => {
+    const config = {
+      ...buildCfg(),
+      channels: { whatsapp: { configWrites: false } },
+    };
+    readConfigFileSnapshotMock.mockResolvedValue({
+      valid: true,
+      path: "/tmp/openclaw.json",
+      resolved: config,
+    });
+    buildPluginStatusReportMock.mockReturnValue(
+      createPluginStatusReport({
+        workspaceDir: "/tmp/workspace",
+        plugins: [
+          createPluginRecord({
+            id: "superpowers",
+            format: "bundle",
+            source: "/tmp/workspace/.openclaw/extensions/superpowers",
+            enabled: false,
+            status: "disabled",
+          }),
+        ],
+      }),
+    );
+
+    const params = buildCommandTestParams("/plugins enable superpowers", config);
+    params.command.senderIsOwner = true;
+
+    const result = await handleCommands(params);
+    expect(result.reply?.text).toContain("Config writes are disabled");
+    expect(writeConfigFileMock).not.toHaveBeenCalled();
+  });
 });
