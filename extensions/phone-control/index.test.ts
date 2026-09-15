@@ -38,7 +38,10 @@ function createApi(params: {
   }) as OpenClawPluginApi;
 }
 
-function createCommandContext(args: string): PluginCommandContext {
+function createCommandContext(
+  args: string,
+  overrides: Partial<PluginCommandContext> = {},
+): PluginCommandContext {
   return {
     channel: "test",
     isAuthorizedSender: true,
@@ -51,10 +54,11 @@ function createCommandContext(args: string): PluginCommandContext {
     }),
     detachConversationBinding: async () => ({ removed: false }),
     getCurrentConversationBinding: async () => null,
+    ...overrides,
   };
 }
 
-function createPhoneControlConfig(): Record<string, unknown> {
+function createPhoneControlConfig(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     gateway: {
       nodes: {
@@ -62,6 +66,7 @@ function createPhoneControlConfig(): Record<string, unknown> {
         denyCommands: [...WRITE_COMMANDS],
       },
     },
+    ...extra,
   };
 }
 
@@ -146,6 +151,77 @@ describe("phone-control plugin", () => {
         channel: "webchat",
         gatewayClientScopes: ["operator.admin"],
       });
+
+      expect(String(res?.text ?? "")).toContain("sms.send");
+      expect(writeConfigFile).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("blocks telegram callers when configWrites is disabled", async () => {
+    await withRegisteredPhoneControl(async ({ command, writeConfigFile, getConfig }) => {
+      Object.assign(
+        getConfig(),
+        createPhoneControlConfig({
+          channels: { telegram: { configWrites: false } },
+        }),
+      );
+
+      const res = await command.handler(
+        createCommandContext("arm writes 30s", {
+          channel: "telegram",
+          channelId: "telegram",
+        }),
+      );
+
+      expect(String(res?.text ?? "")).toContain("Config writes are disabled");
+      expect(String(res?.text ?? "")).toContain("channels.telegram.configWrites=true");
+      expect(writeConfigFile).not.toHaveBeenCalled();
+    });
+  });
+
+  it("blocks telegram disarm when configWrites is disabled", async () => {
+    await withRegisteredPhoneControl(async ({ command, writeConfigFile, getConfig }) => {
+      const armRes = await command.handler(createCommandContext("arm writes 30s"));
+      expect(String(armRes?.text ?? "")).toContain("sms.send");
+      expect(writeConfigFile).toHaveBeenCalledTimes(1);
+
+      Object.assign(getConfig(), {
+        channels: { telegram: { configWrites: false } },
+      });
+
+      const res = await command.handler(
+        createCommandContext("disarm", {
+          channel: "telegram",
+          channelId: "telegram",
+        }),
+      );
+
+      expect(String(res?.text ?? "")).toContain("Config writes are disabled");
+      expect(writeConfigFile).toHaveBeenCalledTimes(1);
+      const nodes = (
+        getConfig().gateway as { nodes?: { allowCommands?: string[]; denyCommands?: string[] } }
+      ).nodes;
+      expect(nodes?.allowCommands).toEqual([...WRITE_COMMANDS]);
+      expect(nodes?.denyCommands).toEqual([]);
+    });
+  });
+
+  it("allows internal operator.admin callers even when webchat configWrites is disabled", async () => {
+    await withRegisteredPhoneControl(async ({ command, writeConfigFile, getConfig }) => {
+      Object.assign(
+        getConfig(),
+        createPhoneControlConfig({
+          channels: { webchat: { configWrites: false } },
+        }),
+      );
+
+      const res = await command.handler(
+        createCommandContext("arm writes 30s", {
+          channel: "webchat",
+          channelId: "webchat",
+          gatewayClientScopes: ["operator.admin"],
+        }),
+      );
 
       expect(String(res?.text ?? "")).toContain("sms.send");
       expect(writeConfigFile).toHaveBeenCalledTimes(1);

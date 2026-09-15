@@ -1,9 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  authorizeConfigWrite,
+  canBypassConfigWritePolicy,
+  formatConfigWriteDeniedMessage,
+} from "openclaw/plugin-sdk/channel-config-helpers";
+import {
   definePluginEntry,
   type OpenClawPluginApi,
   type OpenClawPluginService,
+  type PluginCommandContext,
 } from "./runtime-api.js";
 
 type ArmGroup = "camera" | "screen" | "writes" | "all";
@@ -165,6 +171,29 @@ function normalizeDenyList(cfg: OpenClawPluginApi["config"]): string[] {
 
 function normalizeAllowList(cfg: OpenClawPluginApi["config"]): string[] {
   return uniqSorted([...(cfg.gateway?.nodes?.allowCommands ?? [])]);
+}
+
+function resolvePhoneConfigWriteDeniedText(params: {
+  cfg: OpenClawPluginApi["config"];
+  ctx: PluginCommandContext;
+}): string | null {
+  const channelId = params.ctx.channelId ?? params.ctx.channel;
+  const writeAuth = authorizeConfigWrite({
+    cfg: params.cfg,
+    origin: { channelId, accountId: params.ctx.accountId },
+    target: { kind: "global" },
+    allowBypass: canBypassConfigWritePolicy({
+      channel: params.ctx.channel,
+      gatewayClientScopes: params.ctx.gatewayClientScopes,
+    }),
+  });
+  if (writeAuth.allowed) {
+    return null;
+  }
+  return formatConfigWriteDeniedMessage({
+    result: writeAuth,
+    fallbackChannelId: channelId,
+  });
 }
 
 function patchConfigNodeLists(
@@ -363,6 +392,11 @@ export default definePluginEntry({
               text: "⚠️ /phone disarm requires operator.admin for internal gateway callers.",
             };
           }
+          const cfg = api.runtime.config.loadConfig();
+          const deniedText = resolvePhoneConfigWriteDeniedText({ cfg, ctx });
+          if (deniedText) {
+            return { text: deniedText };
+          }
           const res = await disarmNow({
             api,
             stateDir,
@@ -394,6 +428,10 @@ export default definePluginEntry({
 
           const commands = resolveCommandsForGroup(group);
           const cfg = api.runtime.config.loadConfig();
+          const deniedText = resolvePhoneConfigWriteDeniedText({ cfg, ctx });
+          if (deniedText) {
+            return { text: deniedText };
+          }
           const allowSet = new Set(normalizeAllowList(cfg));
           const denySet = new Set(normalizeDenyList(cfg));
 
