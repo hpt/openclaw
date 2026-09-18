@@ -495,6 +495,30 @@ export function requiresExecApproval(params: {
   );
 }
 
+function syncExecApprovalsSnapshot(target: ExecApprovalsFile, source: ExecApprovalsFile): void {
+  target.version = source.version;
+  target.socket = source.socket;
+  target.defaults = source.defaults;
+  target.agents = source.agents;
+}
+
+/**
+ * Reload exec-approvals.json before persisting a local mutation.
+ * Callers often hold a snapshot from before an approval wait; writing that
+ * object back would clobber concurrent policy/allowlist/socket changes.
+ */
+function persistExecApprovalsMutation(
+  approvals: ExecApprovalsFile,
+  mutate: (file: ExecApprovalsFile) => boolean,
+): void {
+  const current = loadExecApprovals();
+  const changed = mutate(current);
+  if (changed) {
+    saveExecApprovals(current);
+  }
+  syncExecApprovalsSnapshot(approvals, current);
+}
+
 export function recordAllowlistUse(
   approvals: ExecApprovalsFile,
   agentId: string | undefined,
@@ -502,24 +526,32 @@ export function recordAllowlistUse(
   command: string,
   resolvedPath?: string,
 ) {
-  const target = agentId ?? DEFAULT_AGENT_ID;
-  const agents = approvals.agents ?? {};
-  const existing = agents[target] ?? {};
-  const allowlist = Array.isArray(existing.allowlist) ? existing.allowlist : [];
-  const nextAllowlist = allowlist.map((item) =>
-    item.pattern === entry.pattern
-      ? {
-          ...item,
-          id: item.id ?? crypto.randomUUID(),
-          lastUsedAt: Date.now(),
-          lastUsedCommand: command,
-          lastResolvedPath: resolvedPath,
-        }
-      : item,
-  );
-  agents[target] = { ...existing, allowlist: nextAllowlist };
-  approvals.agents = agents;
-  saveExecApprovals(approvals);
+  persistExecApprovalsMutation(approvals, (file) => {
+    const target = agentId ?? DEFAULT_AGENT_ID;
+    const agents = file.agents ?? {};
+    const existing = agents[target] ?? {};
+    const allowlist = Array.isArray(existing.allowlist) ? existing.allowlist : [];
+    let changed = false;
+    const nextAllowlist = allowlist.map((item) => {
+      if (item.pattern !== entry.pattern) {
+        return item;
+      }
+      changed = true;
+      return {
+        ...item,
+        id: item.id ?? crypto.randomUUID(),
+        lastUsedAt: Date.now(),
+        lastUsedCommand: command,
+        lastResolvedPath: resolvedPath,
+      };
+    });
+    if (!changed) {
+      return false;
+    }
+    agents[target] = { ...existing, allowlist: nextAllowlist };
+    file.agents = agents;
+    return true;
+  });
 }
 
 export function addAllowlistEntry(
@@ -527,21 +559,23 @@ export function addAllowlistEntry(
   agentId: string | undefined,
   pattern: string,
 ) {
-  const target = agentId ?? DEFAULT_AGENT_ID;
-  const agents = approvals.agents ?? {};
-  const existing = agents[target] ?? {};
-  const allowlist = Array.isArray(existing.allowlist) ? existing.allowlist : [];
   const trimmed = pattern.trim();
   if (!trimmed) {
     return;
   }
-  if (allowlist.some((entry) => entry.pattern === trimmed)) {
-    return;
-  }
-  allowlist.push({ id: crypto.randomUUID(), pattern: trimmed, lastUsedAt: Date.now() });
-  agents[target] = { ...existing, allowlist };
-  approvals.agents = agents;
-  saveExecApprovals(approvals);
+  persistExecApprovalsMutation(approvals, (file) => {
+    const target = agentId ?? DEFAULT_AGENT_ID;
+    const agents = file.agents ?? {};
+    const existing = agents[target] ?? {};
+    const allowlist = Array.isArray(existing.allowlist) ? existing.allowlist : [];
+    if (allowlist.some((entry) => entry.pattern === trimmed)) {
+      return false;
+    }
+    allowlist.push({ id: crypto.randomUUID(), pattern: trimmed, lastUsedAt: Date.now() });
+    agents[target] = { ...existing, allowlist };
+    file.agents = agents;
+    return true;
+  });
 }
 
 export function minSecurity(a: ExecSecurity, b: ExecSecurity): ExecSecurity {

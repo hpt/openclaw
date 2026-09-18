@@ -22,6 +22,7 @@ let recordAllowlistUse: ExecApprovalsModule["recordAllowlistUse"];
 let requestExecApprovalViaSocket: ExecApprovalsModule["requestExecApprovalViaSocket"];
 let resolveExecApprovalsPath: ExecApprovalsModule["resolveExecApprovalsPath"];
 let resolveExecApprovalsSocketPath: ExecApprovalsModule["resolveExecApprovalsSocketPath"];
+let saveExecApprovals: ExecApprovalsModule["saveExecApprovals"];
 
 const tempDirs: string[] = [];
 const originalOpenClawHome = process.env.OPENCLAW_HOME;
@@ -38,6 +39,7 @@ beforeEach(async () => {
     requestExecApprovalViaSocket,
     resolveExecApprovalsPath,
     resolveExecApprovalsSocketPath,
+    saveExecApprovals,
   } = await import("./exec-approvals.js"));
   requestJsonlSocketMock.mockReset();
 });
@@ -164,6 +166,103 @@ describe("exec approvals store helpers", () => {
       }),
     ]);
     expect(readApprovalsFile(dir).agents?.worker?.allowlist?.[0]?.id).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
+  it("reloads exec-approvals.json before allow-always persist so stale snapshots cannot restore a looser policy", () => {
+    const dir = createHomeDir();
+    vi.spyOn(Date, "now").mockReturnValue(222_000);
+
+    const stale = ensureExecApprovals();
+    stale.defaults = { security: "allowlist", ask: "on-miss" };
+    stale.agents = {
+      worker: {
+        security: "allowlist",
+        allowlist: [{ id: "stale-id", pattern: "/usr/bin/old" }],
+      },
+    };
+
+    saveExecApprovals({
+      version: 1,
+      socket: stale.socket,
+      defaults: { security: "deny", ask: "always" },
+      agents: {
+        worker: {
+          security: "deny",
+          allowlist: [{ id: "keep-id", pattern: "/usr/bin/jq" }],
+        },
+      },
+    });
+
+    addAllowlistEntry(stale, "worker", "/usr/bin/rg");
+
+    const persisted = readApprovalsFile(dir);
+    expect(persisted.defaults).toEqual({ security: "deny", ask: "always" });
+    expect(persisted.agents?.worker?.security).toBe("deny");
+    expect(persisted.agents?.worker?.allowlist).toEqual([
+      { id: "keep-id", pattern: "/usr/bin/jq" },
+      expect.objectContaining({
+        pattern: "/usr/bin/rg",
+        lastUsedAt: 222_000,
+      }),
+    ]);
+    expect(stale.defaults).toMatchObject({ security: "deny", ask: "always" });
+    expect(persisted.agents?.worker?.allowlist?.some((entry) => entry.pattern === "/usr/bin/old")).toBe(
+      false,
+    );
+  });
+
+  it("reloads exec-approvals.json before last-used persist so stale snapshots cannot drop concurrent allowlist edits", () => {
+    const dir = createHomeDir();
+    vi.spyOn(Date, "now").mockReturnValue(333_000);
+
+    const stale: ExecApprovalsFile = {
+      version: 1,
+      defaults: { security: "allowlist" },
+      agents: {
+        main: {
+          allowlist: [{ pattern: "/usr/bin/rg" }],
+        },
+      },
+    };
+    fs.mkdirSync(path.dirname(approvalsFilePath(dir)), { recursive: true });
+    fs.writeFileSync(
+      approvalsFilePath(dir),
+      JSON.stringify(
+        {
+          version: 1,
+          defaults: { security: "deny" },
+          agents: {
+            main: {
+              security: "deny",
+              allowlist: [
+                { pattern: "/usr/bin/rg", id: "rg-id" },
+                { pattern: "/usr/bin/jq", id: "jq-id" },
+              ],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    recordAllowlistUse(stale, undefined, { pattern: "/usr/bin/rg" }, "rg needle", "/bin/rg");
+
+    const persisted = readApprovalsFile(dir);
+    expect(persisted.defaults?.security).toBe("deny");
+    expect(persisted.agents?.main?.security).toBe("deny");
+    expect(persisted.agents?.main?.allowlist).toEqual([
+      expect.objectContaining({
+        pattern: "/usr/bin/rg",
+        id: "rg-id",
+        lastUsedAt: 333_000,
+        lastUsedCommand: "rg needle",
+        lastResolvedPath: "/bin/rg",
+      }),
+      { pattern: "/usr/bin/jq", id: "jq-id" },
+    ]);
+    expect(stale.defaults?.security).toBe("deny");
   });
 
   it("records allowlist usage on the matching entry and backfills missing ids", () => {
