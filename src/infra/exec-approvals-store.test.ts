@@ -206,9 +206,9 @@ describe("exec approvals store helpers", () => {
       }),
     ]);
     expect(stale.defaults).toMatchObject({ security: "deny", ask: "always" });
-    expect(persisted.agents?.worker?.allowlist?.some((entry) => entry.pattern === "/usr/bin/old")).toBe(
-      false,
-    );
+    expect(
+      persisted.agents?.worker?.allowlist?.some((entry) => entry.pattern === "/usr/bin/old"),
+    ).toBe(false);
   });
 
   it("reloads exec-approvals.json before last-used persist so stale snapshots cannot drop concurrent allowlist edits", () => {
