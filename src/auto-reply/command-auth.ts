@@ -8,6 +8,7 @@ import {
   isInternalMessageChannel,
   normalizeMessageChannel,
 } from "../utils/message-channel.js";
+import { shouldUseFromAsSenderFallback } from "./sender-identity.js";
 import type { MsgContext } from "./templating.js";
 
 export type CommandAuthorization = {
@@ -278,35 +279,6 @@ function resolveCommandsAllowFromList(params: {
     accountId,
     allowFrom: rawList,
   });
-}
-
-function isConversationLikeIdentity(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  if (normalized.includes("@g.us")) {
-    return true;
-  }
-  if (normalized.startsWith("chat_id:")) {
-    return true;
-  }
-  return /(^|:)(channel|group|thread|topic|room|space|spaces):/.test(normalized);
-}
-
-function shouldUseFromAsSenderFallback(params: {
-  from?: string | null;
-  chatType?: string | null;
-}): boolean {
-  const from = (params.from ?? "").trim();
-  if (!from) {
-    return false;
-  }
-  const chatType = (params.chatType ?? "").trim().toLowerCase();
-  if (chatType && chatType !== "direct") {
-    return false;
-  }
-  return !isConversationLikeIdentity(from);
 }
 
 function resolveSenderCandidates(params: {

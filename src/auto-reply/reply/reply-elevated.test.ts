@@ -67,6 +67,57 @@ describe("resolveElevatedPermissions", () => {
     });
   });
 
+  it("does not authorize a group conversation id as a sender identity", () => {
+    expectAllowFromDecision({
+      allowFrom: ["120363411111111111@g.us", "from:120363411111111111@g.us"],
+      allowed: false,
+      ctx: {
+        ChatType: "group",
+        From: "120363411111111111@g.us",
+        SenderId: "+15550002222",
+        SenderE164: "+15550002222",
+      },
+    });
+  });
+
+  it("does not authorize a WhatsApp group id when chat type is missing", () => {
+    expectAllowFromDecision({
+      allowFrom: ["120363411111111111@g.us"],
+      allowed: false,
+      ctx: {
+        From: "120363411111111111@g.us",
+        SenderId: "+15550002222",
+        SenderE164: "+15550002222",
+      },
+    });
+  });
+
+  it("still authorizes the sender phone inside a group", () => {
+    expectAllowFromDecision({
+      allowFrom: ["+15550001111"],
+      allowed: true,
+      ctx: {
+        ChatType: "group",
+        From: "120363411111111111@g.us",
+        SenderId: "+15550001111",
+        SenderE164: "+15550001111",
+      },
+    });
+  });
+
+  it("keeps direct chat From fallback authorization", () => {
+    expectAllowFromDecision({
+      allowFrom: ["from:whatsapp:+15550001111"],
+      allowed: true,
+      ctx: {
+        ChatType: "direct",
+        From: "whatsapp:+15550001111",
+        SenderId: undefined,
+        SenderE164: undefined,
+      },
+    });
+  });
+
   it("does not authorize untyped mutable sender fields", () => {
     expectAllowFromDecision({
       allowFrom: ["owner-display-name"],
