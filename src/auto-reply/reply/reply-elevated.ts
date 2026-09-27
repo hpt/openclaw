@@ -2,6 +2,7 @@ import { resolveAgentConfig } from "../../agents/agent-scope.js";
 import { getChannelPlugin, normalizeChannelId } from "../../channels/plugins/index.js";
 import type { AgentElevatedAllowFromConfig, OpenClawConfig } from "../../config/config.js";
 import { normalizeStringEntries } from "../../shared/string-normalization.js";
+import { shouldUseFromAsSenderFallback } from "../sender-identity.js";
 import type { MsgContext } from "../templating.js";
 import {
   type AllowFromFormatter,
@@ -84,7 +85,13 @@ function isApprovedElevatedSender(params: {
       tokens: senderIdTokens,
     });
   }
-  if (params.ctx.From?.trim()) {
+  if (
+    params.ctx.From?.trim() &&
+    shouldUseFromAsSenderFallback({
+      from: params.ctx.From,
+      chatType: params.ctx.ChatType,
+    })
+  ) {
     addFormattedTokens({
       formatAllowFrom: params.formatAllowFrom,
       values: [params.ctx.From, stripSenderPrefix(params.ctx.From)].filter(Boolean),
