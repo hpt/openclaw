@@ -14,8 +14,8 @@ OpenClaw pulls environment variables from multiple sources. The rule is **never 
 ## Precedence (highest → lowest)
 
 1. **Process environment** (what the Gateway process already has from the parent shell/daemon).
-2. **`.env` in the current working directory** (dotenv default; does not override).
-3. **Global `.env`** at `~/.openclaw/.env` (aka `$OPENCLAW_STATE_DIR/.env`; does not override).
+2. **`.env` in the current working directory** (does not override). Workspace files cannot set host-control variables, state or config paths, gateway auth, proxy or provider base URL variables, or bundled hooks, plugins, and skills directories.
+3. **Global `.env`** at `~/.openclaw/.env` (aka `$OPENCLAW_STATE_DIR/.env`; does not override). This file can still set the control variables that a workspace `.env` cannot.
 4. **Config `env` block** in `~/.openclaw/openclaw.json` (applied only if missing).
 5. **Optional login-shell import** (`env.shellEnv.enabled` or `OPENCLAW_LOAD_SHELL_ENV=1`), applied only for missing expected keys.
 

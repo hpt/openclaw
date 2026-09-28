@@ -1697,8 +1697,8 @@ Quick answers plus deeper troubleshooting for real-world setups (local dev, VPS,
   <Accordion title="How does OpenClaw load environment variables?">
     OpenClaw reads env vars from the parent process (shell, launchd/systemd, CI, etc.) and additionally loads:
 
-    - `.env` from the current working directory
-    - a global fallback `.env` from `~/.openclaw/.env` (aka `$OPENCLAW_STATE_DIR/.env`)
+    - `.env` from the current working directory, except host-control, state or config path, gateway auth, proxy or provider base URL, and bundled code-root variables
+    - a global fallback `.env` from `~/.openclaw/.env` (aka `$OPENCLAW_STATE_DIR/.env`), which can still set those control variables
 
     Neither `.env` file overrides existing env vars.
 
