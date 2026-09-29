@@ -372,7 +372,9 @@ export function createSessionStatusTool(opts?: {
         throw new Error(`Unknown ${kind}: ${requestedKeyRaw}`);
       }
 
-      if (visibilityGuard && !requestedKeyRaw.startsWith("agent:")) {
+      // Session id resolution rewrites requestedKeyRaw to an agent: key. Keep the
+      // pre-resolution flag so that rewrite cannot skip the sandbox visibility check.
+      if (visibilityGuard && !isExplicitAgentKey) {
         const access = visibilityGuard.check(
           normalizeVisibilityTargetSessionKey(resolved.key, agentId),
         );

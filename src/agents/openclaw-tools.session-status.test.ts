@@ -502,6 +502,61 @@ describe("session_status tool", () => {
     expectSpawnedSessionLookupCalls("agent:main:subagent:child");
   });
 
+  it("blocks sandboxed child session_status parent sessionId access outside its tree", async () => {
+    resetSessionStore({
+      "agent:main:subagent:child": {
+        sessionId: "s-child",
+        updatedAt: 20,
+      },
+      "agent:main:main": {
+        sessionId: "s-parent",
+        updatedAt: 10,
+      },
+    });
+    installSandboxedSessionStatusConfig();
+    mockSpawnedSessionList(() => []);
+
+    const tool = getSessionStatusTool("agent:main:subagent:child", {
+      sandboxed: true,
+    });
+
+    await expect(
+      tool.execute("call7-parent-session-id", {
+        sessionKey: "s-parent",
+        model: "anthropic/claude-sonnet-4-6",
+      }),
+    ).rejects.toThrow("Session status visibility is restricted to the current session tree");
+
+    expect(updateSessionStoreMock).not.toHaveBeenCalled();
+  });
+
+  it("allows sandboxed session_status of the current session by sessionId", async () => {
+    resetSessionStore({
+      "agent:main:subagent:child": {
+        sessionId: "s-child",
+        updatedAt: 20,
+      },
+      "agent:main:main": {
+        sessionId: "s-parent",
+        updatedAt: 10,
+      },
+    });
+    installSandboxedSessionStatusConfig();
+    mockSpawnedSessionList(() => []);
+
+    const tool = getSessionStatusTool("agent:main:subagent:child", {
+      sandboxed: true,
+    });
+
+    const result = await tool.execute("call7-own-session-id", {
+      sessionKey: "s-child",
+    });
+    const details = result.details as { ok?: boolean; sessionKey?: string };
+    expect(details.ok).toBe(true);
+    expect(details.sessionKey).toBe("agent:main:subagent:child");
+    expect(updateSessionStoreMock).not.toHaveBeenCalled();
+  });
+
   it("keeps legacy main requester keys for sandboxed session tree checks", async () => {
     resetSessionStore({
       "agent:main:main": {
