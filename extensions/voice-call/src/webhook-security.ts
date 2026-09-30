@@ -817,6 +817,23 @@ function constructPlivoV3BaseUrl(params: {
   return baseUrl + sortedParamsString(params.postParams);
 }
 
+function createPlivoV3ReplayKey(params: {
+  method: "GET" | "POST";
+  url: string;
+  postParams: PlivoParamMap;
+  nonce: string;
+}): string {
+  // V3 signatures are computed over a sorted query string, so the replay key
+  // must use that same canonical URL. Hashing the raw URL lets a reordered
+  // query string pass verification and miss the replay cache.
+  const baseUrl = constructPlivoV3BaseUrl({
+    method: params.method,
+    url: params.url,
+    postParams: params.postParams,
+  });
+  return `plivo:v3:${sha256Hex(`${baseUrl}\n${params.nonce}`)}`;
+}
+
 function validatePlivoV3Signature(params: {
   authToken: string;
   signatureHeader: string;
@@ -951,7 +968,12 @@ export function verifyPlivoWebhook(
         reason: "Invalid Plivo V3 signature",
       };
     }
-    const replayKey = `plivo:v3:${sha256Hex(`${verificationUrl}\n${nonceV3}`)}`;
+    const replayKey = createPlivoV3ReplayKey({
+      method,
+      url: verificationUrl,
+      postParams,
+      nonce: nonceV3,
+    });
     const isReplay = markReplay(plivoReplayCache, replayKey);
     return { ok: true, version: "v3", verificationUrl, isReplay, verifiedRequestKey: replayKey };
   }
