@@ -145,6 +145,11 @@ export type MsgContext = {
   AcpDispatchTailAfterReset?: boolean;
   /** Gateway client scopes when the message originates from the gateway. */
   GatewayClientScopes?: string[];
+  /**
+   * Trusted system override for contexts that must never inherit owner semantics.
+   * Exec-completion heartbeats set this so command output cannot gain owner-only tools.
+   */
+  ForceSenderIsOwnerFalse?: boolean;
   /** Thread identifier (Telegram topic id or Matrix thread event id). */
   MessageThreadId?: string | number;
   /** Platform-native channel/conversation id (e.g. Slack DM channel "D…" id). */

@@ -194,6 +194,33 @@ describe("resolveCommandAuthorization", () => {
     expect(auth.ownerList).toEqual(["123"]);
   });
 
+  it("does not inherit owner status for exec-completion heartbeats", () => {
+    const cfg = {
+      commands: { ownerAllowFrom: ["123456789"] },
+      channels: { telegram: { allowFrom: ["123456789"] } },
+    } as OpenClawConfig;
+    const ctx = {
+      Provider: "exec-event",
+      OriginatingChannel: "telegram",
+      From: "123456789",
+      To: "123456789",
+    } as MsgContext;
+
+    const inherited = resolveCommandAuthorization({
+      ctx,
+      cfg,
+      commandAuthorized: true,
+    });
+    expect(inherited.senderIsOwner).toBe(true);
+
+    const suppressed = resolveCommandAuthorization({
+      ctx: { ...ctx, ForceSenderIsOwnerFalse: true },
+      cfg,
+      commandAuthorized: true,
+    });
+    expect(suppressed.senderIsOwner).toBe(false);
+  });
+
   it("does not infer a provider from channel allowlists for webchat command contexts", () => {
     const cfg = {
       channels: { whatsapp: { allowFrom: ["+15551234567"] } },

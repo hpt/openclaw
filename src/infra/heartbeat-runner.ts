@@ -647,6 +647,9 @@ export async function runHeartbeatOnce(opts: {
     MessageThreadId: delivery.threadId,
     Provider: hasExecCompletion ? "exec-event" : hasCronEvents ? "cron-event" : "heartbeat",
     SessionKey: runSessionKey,
+    // Exec output is injected as a trusted system event. Do not treat the
+    // delivery-target sender as the owner for that turn.
+    ForceSenderIsOwnerFalse: hasExecCompletion,
   };
   if (!visibility.showAlerts && !visibility.showOk && !visibility.useIndicator) {
     emitHeartbeatEvent({
