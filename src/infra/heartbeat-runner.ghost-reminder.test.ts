@@ -79,7 +79,7 @@ describe("Ghost reminder bug (issue #13317)", () => {
   ): Promise<{
     result: Awaited<ReturnType<typeof runHeartbeatOnce>>;
     sendTelegram: ReturnType<typeof vi.fn>;
-    calledCtx: { Provider?: string; Body?: string } | null;
+    calledCtx: { Provider?: string; Body?: string; ForceSenderIsOwnerFalse?: boolean } | null;
   }> => {
     return runHeartbeatCase({
       tmpPrefix,
@@ -98,7 +98,7 @@ describe("Ghost reminder bug (issue #13317)", () => {
   }): Promise<{
     result: Awaited<ReturnType<typeof runHeartbeatOnce>>;
     sendTelegram: ReturnType<typeof vi.fn>;
-    calledCtx: { Provider?: string; Body?: string } | null;
+    calledCtx: { Provider?: string; Body?: string; ForceSenderIsOwnerFalse?: boolean } | null;
     replyCallCount: number;
   }> => {
     return withTempHeartbeatSandbox(
@@ -121,6 +121,7 @@ describe("Ghost reminder bug (issue #13317)", () => {
         const calledCtx = (getReplySpy.mock.calls[0]?.[0] ?? null) as {
           Provider?: string;
           Body?: string;
+          ForceSenderIsOwnerFalse?: boolean;
         } | null;
         return {
           result,
@@ -226,6 +227,7 @@ describe("Ghost reminder bug (issue #13317)", () => {
 
     expect(result.status).toBe("ran");
     expect(calledCtx?.Provider).toBe("exec-event");
+    expect(calledCtx?.ForceSenderIsOwnerFalse).toBe(true);
     expect(calledCtx?.Body).toContain("Handle the result internally");
     expect(sendTelegram).not.toHaveBeenCalled();
   });
