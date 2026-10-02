@@ -23,6 +23,7 @@ import {
 import { isTrustedSafeBinPath } from "./exec-safe-bin-trust.js";
 import {
   extractShellWrapperInlineCommand,
+  isDispatchWrapperExecutable,
   isShellWrapperExecutable,
   normalizeExecutableToken,
 } from "./exec-wrapper-resolution.js";
@@ -460,6 +461,13 @@ function resolveShellWrapperPositionalArgvCandidatePath(params: {
     .map((token) => token.trim())
     .find((token) => token.length > 0);
   if (!carriedExecutable) {
+    return undefined;
+  }
+
+  // Reject wrapper targets carried through `$0 "$@"` because their trailing argv can
+  // widen execution semantics beyond the original approved command.
+  const carriedName = normalizeExecutableToken(carriedExecutable);
+  if (isDispatchWrapperExecutable(carriedName) || isShellWrapperExecutable(carriedName)) {
     return undefined;
   }
 
