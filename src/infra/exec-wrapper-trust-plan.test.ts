@@ -18,6 +18,43 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("unwraps script wrappers before evaluating nested shell payloads", () => {
+    if (process.platform !== "darwin" && process.platform !== "freebsd") {
+      return;
+    }
+    expect(
+      resolveExecWrapperTrustPlan(["/usr/bin/script", "-q", "/dev/null", "sh", "-lc", "echo hi"]),
+    ).toEqual({
+      argv: ["sh", "-lc", "echo hi"],
+      policyArgv: ["sh", "-lc", "echo hi"],
+      wrapperChain: ["script"],
+      policyBlocked: false,
+      shellWrapperExecutable: true,
+      shellInlineCommand: "echo hi",
+    });
+  });
+
+  test("fails closed for script wrappers outside macOS and FreeBSD", () => {
+    if (
+      process.platform === "win32" ||
+      process.platform === "darwin" ||
+      process.platform === "freebsd"
+    ) {
+      return;
+    }
+    expect(
+      resolveExecWrapperTrustPlan(["/usr/bin/script", "-q", "-c", "id > marker", "/dev/null"]),
+    ).toEqual({
+      argv: ["/usr/bin/script", "-q", "-c", "id > marker", "/dev/null"],
+      policyArgv: ["/usr/bin/script", "-q", "-c", "id > marker", "/dev/null"],
+      wrapperChain: [],
+      policyBlocked: true,
+      blockedWrapper: "script",
+      shellWrapperExecutable: false,
+      shellInlineCommand: null,
+    });
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],
