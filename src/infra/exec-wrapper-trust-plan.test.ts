@@ -18,6 +18,41 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("unwraps macOS arch into the carried shell command", () => {
+    expect(
+      resolveExecWrapperTrustPlan(
+        ["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo hi"],
+        undefined,
+        "darwin",
+      ),
+    ).toEqual({
+      argv: ["/bin/zsh", "-lc", "echo hi"],
+      policyArgv: ["/bin/zsh", "-lc", "echo hi"],
+      wrapperChain: ["arch"],
+      policyBlocked: false,
+      shellWrapperExecutable: true,
+      shellInlineCommand: "echo hi",
+    });
+  });
+
+  test("fails closed for arch wrappers outside macOS", () => {
+    expect(
+      resolveExecWrapperTrustPlan(
+        ["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo hi"],
+        undefined,
+        "linux",
+      ),
+    ).toEqual({
+      argv: ["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo hi"],
+      policyArgv: ["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo hi"],
+      wrapperChain: [],
+      policyBlocked: true,
+      blockedWrapper: "arch",
+      shellWrapperExecutable: false,
+      shellInlineCommand: null,
+    });
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],

@@ -243,6 +243,32 @@ describe("system run command helpers", () => {
     expect(res.commandText).toBe('/bin/sh -lc "echo hi"');
   });
 
+  test("resolveSystemRunCommand unwraps macOS arch before deriving shell previews", () => {
+    const res = resolveSystemRunCommand({
+      command: ["/usr/bin/arch", "-arm64", "/bin/sh", "-lc", "echo hi"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) {
+      throw new Error("unreachable");
+    }
+    expect(res.shellPayload).toBe(process.platform === "darwin" ? "echo hi" : null);
+    expect(res.commandText).toBe('/usr/bin/arch -arm64 /bin/sh -lc "echo hi"');
+    expect(res.previewText).toBe(process.platform === "darwin" ? "echo hi" : null);
+  });
+
+  test("resolveSystemRunCommand unwraps xcrun before deriving shell previews", () => {
+    const res = resolveSystemRunCommand({
+      command: ["/usr/bin/xcrun", "/bin/sh", "-lc", "echo hi"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) {
+      throw new Error("unreachable");
+    }
+    expect(res.shellPayload).toBe(process.platform === "darwin" ? "echo hi" : null);
+    expect(res.commandText).toBe('/usr/bin/xcrun /bin/sh -lc "echo hi"');
+    expect(res.previewText).toBe(process.platform === "darwin" ? "echo hi" : null);
+  });
+
   test("resolveSystemRunCommandRequest accepts legacy shell payloads but returns canonical command text", () => {
     const res = resolveSystemRunCommandRequest({
       command: ["cmd.exe", "/d", "/s", "/c", "echo", "SAFE&&whoami"],

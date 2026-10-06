@@ -496,7 +496,7 @@ function collectAllowAlwaysPatterns(params: {
     return;
   }
 
-  const trustPlan = resolveExecWrapperTrustPlan(params.segment.argv);
+  const trustPlan = resolveExecWrapperTrustPlan(params.segment.argv, undefined, params.platform);
   if (trustPlan.policyBlocked) {
     return;
   }
