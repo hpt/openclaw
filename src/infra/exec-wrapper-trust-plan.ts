@@ -57,16 +57,43 @@ function finalizeExecWrapperTrustPlan(
   };
 }
 
+const EXEC_WRAPPER_PLATFORMS = new Set<string>([
+  "aix",
+  "android",
+  "cygwin",
+  "darwin",
+  "freebsd",
+  "haiku",
+  "linux",
+  "netbsd",
+  "openbsd",
+  "sunos",
+  "win32",
+]);
+
+function coerceNodePlatform(platform?: string | null): NodeJS.Platform {
+  if (platform && EXEC_WRAPPER_PLATFORMS.has(platform)) {
+    return platform as NodeJS.Platform;
+  }
+  return process.platform;
+}
+
 export function resolveExecWrapperTrustPlan(
   argv: string[],
   maxDepth = MAX_DISPATCH_WRAPPER_DEPTH,
+  platform?: string | null,
 ): ExecWrapperTrustPlan {
+  const resolvedPlatform = coerceNodePlatform(platform);
   let current = argv;
   let policyArgv = argv;
   let sawShellMultiplexer = false;
   const wrapperChain: string[] = [];
   for (let depth = 0; depth < maxDepth; depth += 1) {
-    const dispatchPlan = resolveDispatchWrapperTrustPlan(current, maxDepth - wrapperChain.length);
+    const dispatchPlan = resolveDispatchWrapperTrustPlan(
+      current,
+      maxDepth - wrapperChain.length,
+      resolvedPlatform,
+    );
     if (dispatchPlan.policyBlocked) {
       return blockedExecWrapperTrustPlan({
         argv: dispatchPlan.argv,
@@ -114,7 +141,7 @@ export function resolveExecWrapperTrustPlan(
   }
 
   if (wrapperChain.length >= maxDepth) {
-    const dispatchOverflow = unwrapKnownDispatchWrapperInvocation(current);
+    const dispatchOverflow = unwrapKnownDispatchWrapperInvocation(current, resolvedPlatform);
     if (dispatchOverflow.kind === "blocked" || dispatchOverflow.kind === "unwrapped") {
       return blockedExecWrapperTrustPlan({
         argv: current,

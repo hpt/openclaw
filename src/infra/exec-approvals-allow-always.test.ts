@@ -608,6 +608,84 @@ $0 \\"$1\\"" touch ${marker}`,
     });
   });
 
+  it("persists the inner executable for macOS arch and xcrun wrappers", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    const id = makeExecutable(dir, "id");
+    const env = makePathEnv(dir);
+    const segmentFor = (argv: string[]) => ({
+      raw: argv.join(" "),
+      argv,
+      resolution: makeMockCommandResolution({
+        execution: makeMockExecutableResolution({
+          rawExecutable: argv[0] ?? "",
+          resolvedPath: argv[0],
+          executableName: path.basename(argv[0] ?? ""),
+        }),
+      }),
+    });
+    const patternsFor = (argv: string[], platform: "darwin" | "linux") =>
+      resolveAllowAlwaysPatterns({
+        segments: [segmentFor(argv)],
+        cwd: dir,
+        env,
+        platform,
+      });
+
+    expect(
+      patternsFor(["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo warmup-ok"], "darwin"),
+    ).toEqual([echo]);
+    expect(patternsFor(["/usr/bin/xcrun", "/bin/zsh", "-lc", "echo warmup-ok"], "darwin")).toEqual([
+      echo,
+    ]);
+    expect(patternsFor(["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "id"], "darwin")).toEqual([
+      id,
+    ]);
+    expect(patternsFor(["/usr/bin/xcrun", "/bin/zsh", "-lc", "id"], "darwin")).toEqual([id]);
+    expect(
+      patternsFor(
+        ["/usr/bin/arch", "-e", "FOO=bar", "/bin/zsh", "-lc", "echo warmup-ok"],
+        "darwin",
+      ),
+    ).toEqual([]);
+    expect(
+      patternsFor(
+        ["/usr/bin/xcrun", "--sdk", "macosx", "/bin/zsh", "-lc", "echo warmup-ok"],
+        "darwin",
+      ),
+    ).toEqual([]);
+    expect(
+      patternsFor(["/usr/bin/arch", "-arm64", "/bin/zsh", "-lc", "echo warmup-ok"], "linux"),
+    ).toEqual([]);
+  });
+
+  it("prevents allow-always bypass for macOS dispatch-wrapper chains", () => {
+    if (process.platform !== "darwin") {
+      return;
+    }
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    makeExecutable(dir, "id");
+    const env = makePathEnv(dir);
+    expectAllowAlwaysBypassBlocked({
+      dir,
+      firstCommand: "/usr/bin/arch -arm64 /bin/zsh -lc 'echo warmup-ok'",
+      secondCommand: "/usr/bin/arch -arm64 /bin/zsh -lc 'id > marker-arch'",
+      env,
+      persistedPattern: echo,
+    });
+    expectAllowAlwaysBypassBlocked({
+      dir,
+      firstCommand: "/usr/bin/xcrun /bin/zsh -lc 'echo warmup-ok'",
+      secondCommand: "/usr/bin/xcrun /bin/zsh -lc 'id > marker-xcrun'",
+      env,
+      persistedPattern: echo,
+    });
+  });
+
   it("prevents allow-always bypass for dispatch-wrapper + shell-wrapper chains", () => {
     if (process.platform === "win32") {
       return;

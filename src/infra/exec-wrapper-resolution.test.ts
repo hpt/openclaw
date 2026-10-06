@@ -139,8 +139,81 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
       argv: ["timeout", "--bogus", "5s", "bash", "-lc", "echo hi"],
       expected: { kind: "blocked", wrapper: "timeout" },
     },
+    {
+      argv: ["xcrun", "bash", "-lc", "echo hi"],
+      expected:
+        process.platform === "darwin"
+          ? { kind: "unwrapped", wrapper: "xcrun", argv: ["bash", "-lc", "echo hi"] }
+          : { kind: "blocked", wrapper: "xcrun" },
+    },
+    {
+      argv: ["arch", "-e", "FOO=bar", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "arch" },
+    },
+    {
+      argv: ["arch", "-arch", "bogus", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "arch" },
+    },
+    {
+      argv: ["xcrun", "--sdk", "macosx", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "xcrun" },
+    },
   ])("unwraps known dispatch wrappers for %j", ({ argv, expected }) => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
+  });
+
+  test("unwraps macOS arch and xcrun dispatch wrappers when the host platform is darwin", () => {
+    expect(
+      unwrapKnownDispatchWrapperInvocation(["arch", "-arm64", "bash", "-lc", "echo hi"], "darwin"),
+    ).toEqual({
+      kind: "unwrapped",
+      wrapper: "arch",
+      argv: ["bash", "-lc", "echo hi"],
+    });
+    expect(
+      unwrapKnownDispatchWrapperInvocation(["xcrun", "bash", "-lc", "echo hi"], "darwin"),
+    ).toEqual({
+      kind: "unwrapped",
+      wrapper: "xcrun",
+      argv: ["bash", "-lc", "echo hi"],
+    });
+    expect(
+      unwrapKnownDispatchWrapperInvocation(
+        ["arch", "-arch", "x86_64", "bash", "-lc", "echo hi"],
+        "darwin",
+      ),
+    ).toEqual({
+      kind: "unwrapped",
+      wrapper: "arch",
+      argv: ["bash", "-lc", "echo hi"],
+    });
+    expect(
+      unwrapKnownDispatchWrapperInvocation(
+        ["arch", "-e", "FOO=bar", "bash", "-lc", "echo hi"],
+        "darwin",
+      ),
+    ).toEqual({
+      kind: "blocked",
+      wrapper: "arch",
+    });
+    expect(
+      unwrapKnownDispatchWrapperInvocation(
+        ["xcrun", "--sdk", "macosx", "bash", "-lc", "echo hi"],
+        "darwin",
+      ),
+    ).toEqual({
+      kind: "blocked",
+      wrapper: "xcrun",
+    });
+  });
+
+  test("blocks arch dispatch unwrapping outside macOS", () => {
+    expect(
+      unwrapKnownDispatchWrapperInvocation(["arch", "-arm64", "bash", "-lc", "echo hi"], "linux"),
+    ).toEqual({
+      kind: "blocked",
+      wrapper: "arch",
+    });
   });
 
   test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
@@ -189,6 +262,20 @@ describe("resolveDispatchWrapperTrustPlan", () => {
       wrapper: "timeout",
       effectiveArgv: ["bash", "-lc", "echo hi"],
     },
+    ...(process.platform === "darwin"
+      ? [
+          {
+            argv: ["arch", "-arm64", "bash", "-lc", "echo hi"],
+            wrapper: "arch",
+            effectiveArgv: ["bash", "-lc", "echo hi"],
+          },
+          {
+            argv: ["xcrun", "bash", "-lc", "echo hi"],
+            wrapper: "xcrun",
+            effectiveArgv: ["bash", "-lc", "echo hi"],
+          },
+        ]
+      : []),
   ])("keeps transparent wrapper handling in sync for %s", ({ argv, wrapper, effectiveArgv }) => {
     expect(isDispatchWrapperExecutable(wrapper)).toBe(true);
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual({
@@ -210,6 +297,46 @@ describe("resolveDispatchWrapperTrustPlan", () => {
       argv: ["bash", "-lc", "echo hi"],
       wrappers: ["nohup", "nice"],
       policyBlocked: false,
+    });
+  });
+
+  test("unwraps macOS arch and xcrun trust plans on darwin", () => {
+    expect(
+      resolveDispatchWrapperTrustPlan(
+        ["arch", "-arm64", "bash", "-lc", "echo hi"],
+        undefined,
+        "darwin",
+      ),
+    ).toEqual({
+      argv: ["bash", "-lc", "echo hi"],
+      wrappers: ["arch"],
+      policyBlocked: false,
+    });
+    expect(
+      resolveDispatchWrapperTrustPlan(
+        ["xcrun", "-v", "bash", "-lc", "echo hi"],
+        undefined,
+        "darwin",
+      ),
+    ).toEqual({
+      argv: ["bash", "-lc", "echo hi"],
+      wrappers: ["xcrun"],
+      policyBlocked: false,
+    });
+  });
+
+  test("blocks arch trust unwrapping outside macOS", () => {
+    expect(
+      resolveDispatchWrapperTrustPlan(
+        ["arch", "-arm64", "bash", "-lc", "echo hi"],
+        undefined,
+        "linux",
+      ),
+    ).toEqual({
+      argv: ["arch", "-arm64", "bash", "-lc", "echo hi"],
+      wrappers: [],
+      policyBlocked: true,
+      blockedWrapper: "arch",
     });
   });
 
