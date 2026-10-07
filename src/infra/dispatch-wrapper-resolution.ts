@@ -26,7 +26,10 @@ const ENV_INLINE_VALUE_PREFIXES = [
 ] as const;
 const ENV_FLAG_OPTIONS = new Set(["-i", "--ignore-environment", "-0", "--null"]);
 const NICE_OPTIONS_WITH_VALUE = new Set(["-n", "--adjustment", "--priority"]);
+const CAFFEINATE_OPTIONS_WITH_VALUE = new Set(["-t", "-w"]);
+const CAFFEINATE_FLAG_OPTIONS = new Set(["-d", "-i", "-m", "-s", "-u"]);
 const STDBUF_OPTIONS_WITH_VALUE = new Set(["-i", "--input", "-o", "--output", "-e", "--error"]);
+const SANDBOX_EXEC_OPTIONS_WITH_VALUE = new Set(["-f", "-p", "-d"]);
 const TIME_FLAG_OPTIONS = new Set([
   "-a",
   "--append",
@@ -222,6 +225,33 @@ function unwrapNiceInvocation(argv: string[]): string[] | null {
   });
 }
 
+function unwrapCaffeinateInvocation(argv: string[]): string[] | null {
+  return unwrapDashOptionInvocation(argv, {
+    onFlag: (flag, lower) => {
+      if (CAFFEINATE_FLAG_OPTIONS.has(flag)) {
+        return "continue";
+      }
+      if (CAFFEINATE_OPTIONS_WITH_VALUE.has(flag)) {
+        // `-t=60` carries its value inline. A bare `-t` consumes the next token.
+        return lower.includes("=") || lower !== flag ? "continue" : "consume-next";
+      }
+      return "invalid";
+    },
+  });
+}
+
+function unwrapSandboxExecInvocation(argv: string[]): string[] | null {
+  return unwrapDashOptionInvocation(argv, {
+    onFlag: (flag, lower) => {
+      // `-D` is lowercased to `-d` before this check. Unknown flags fail closed.
+      if (SANDBOX_EXEC_OPTIONS_WITH_VALUE.has(flag)) {
+        return lower.includes("=") || lower !== flag ? "continue" : "consume-next";
+      }
+      return "invalid";
+    },
+  });
+}
+
 function unwrapNohupInvocation(argv: string[]): string[] | null {
   return scanWrapperInvocation(argv, {
     separators: new Set(["--"]),
@@ -284,6 +314,7 @@ type DispatchWrapperSpec = {
 };
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
+  { name: "caffeinate", unwrap: unwrapCaffeinateInvocation, transparentUsage: true },
   { name: "chrt" },
   { name: "doas" },
   {
@@ -294,6 +325,7 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
+  { name: "sandbox-exec", unwrap: unwrapSandboxExecInvocation, transparentUsage: true },
   { name: "setsid" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },

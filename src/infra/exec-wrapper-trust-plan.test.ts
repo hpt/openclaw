@@ -2,6 +2,53 @@ import { describe, expect, test } from "vitest";
 import { resolveExecWrapperTrustPlan } from "./exec-wrapper-trust-plan.js";
 
 describe("resolveExecWrapperTrustPlan", () => {
+  test("unwraps transparent caffeinate wrappers before shell policy checks", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    expect(
+      resolveExecWrapperTrustPlan([
+        "/usr/bin/caffeinate",
+        "-d",
+        "-w",
+        "42",
+        "sh",
+        "-lc",
+        "echo hi",
+      ]),
+    ).toEqual({
+      argv: ["sh", "-lc", "echo hi"],
+      policyArgv: ["sh", "-lc", "echo hi"],
+      wrapperChain: ["caffeinate"],
+      policyBlocked: false,
+      shellWrapperExecutable: true,
+      shellInlineCommand: "echo hi",
+    });
+  });
+
+  test("unwraps sandbox-exec wrappers before evaluating nested shell payloads", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    expect(
+      resolveExecWrapperTrustPlan([
+        "/usr/bin/sandbox-exec",
+        "-p",
+        "(allow default)",
+        "sh",
+        "-lc",
+        "echo hi",
+      ]),
+    ).toEqual({
+      argv: ["sh", "-lc", "echo hi"],
+      policyArgv: ["sh", "-lc", "echo hi"],
+      wrapperChain: ["sandbox-exec"],
+      policyBlocked: false,
+      shellWrapperExecutable: true,
+      shellInlineCommand: "echo hi",
+    });
+  });
+
   test("unwraps dispatch wrappers and shell multiplexers into one trust plan", () => {
     if (process.platform === "win32") {
       return;

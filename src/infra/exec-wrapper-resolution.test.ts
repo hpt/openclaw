@@ -40,6 +40,8 @@ describe("normalizeExecutableToken", () => {
 describe("wrapper classification", () => {
   test.each([
     { token: "sudo", dispatch: true, shell: false },
+    { token: "caffeinate", dispatch: true, shell: false },
+    { token: "sandbox-exec", dispatch: true, shell: false },
     { token: "time", dispatch: true, shell: false },
     { token: "timeout.exe", dispatch: true, shell: false },
     { token: "bash", dispatch: false, shell: true },
@@ -108,6 +110,10 @@ describe("unwrapEnvInvocation", () => {
 describe("unwrapKnownDispatchWrapperInvocation", () => {
   test.each([
     {
+      argv: ["caffeinate", "-d", "-w", "42", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "caffeinate", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
       argv: ["env", "--", "bash", "-lc", "echo hi"],
       expected: { kind: "unwrapped", wrapper: "env", argv: ["bash", "-lc", "echo hi"] },
     },
@@ -132,8 +138,32 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
       expected: { kind: "unwrapped", wrapper: "timeout", argv: ["bash", "-lc", "echo hi"] },
     },
     {
+      argv: ["sandbox-exec", "-p", "(allow default)", "bash", "-lc", "echo hi"],
+      expected: {
+        kind: "unwrapped",
+        wrapper: "sandbox-exec",
+        argv: ["bash", "-lc", "echo hi"],
+      },
+    },
+    {
+      argv: ["sandbox-exec", "-D", "PROFILE", "bash", "-lc", "echo hi"],
+      expected: {
+        kind: "unwrapped",
+        wrapper: "sandbox-exec",
+        argv: ["bash", "-lc", "echo hi"],
+      },
+    },
+    {
       argv: ["sudo", "bash", "-lc", "echo hi"],
       expected: { kind: "blocked", wrapper: "sudo" },
+    },
+    {
+      argv: ["caffeinate", "-b", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "caffeinate" },
+    },
+    {
+      argv: ["sandbox-exec", "-n", "no-network", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "sandbox-exec" },
     },
     {
       argv: ["timeout", "--bogus", "5s", "bash", "-lc", "echo hi"],
@@ -165,6 +195,11 @@ describe("resolveDispatchWrapperTrustPlan", () => {
 
   test.each([
     {
+      argv: ["caffeinate", "-d", "-t", "60", "bash", "-lc", "echo hi"],
+      wrapper: "caffeinate",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
       argv: ["nice", "-n", "5", "bash", "-lc", "echo hi"],
       wrapper: "nice",
       effectiveArgv: ["bash", "-lc", "echo hi"],
@@ -172,6 +207,16 @@ describe("resolveDispatchWrapperTrustPlan", () => {
     {
       argv: ["nohup", "--", "bash", "-lc", "echo hi"],
       wrapper: "nohup",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
+      argv: ["sandbox-exec", "-p", "(allow default)", "bash", "-lc", "echo hi"],
+      wrapper: "sandbox-exec",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
+      argv: ["sandbox-exec", "-D", "PROFILE", "bash", "-lc", "echo hi"],
+      wrapper: "sandbox-exec",
       effectiveArgv: ["bash", "-lc", "echo hi"],
     },
     {

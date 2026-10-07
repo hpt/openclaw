@@ -44,6 +44,8 @@ describe("system run command helpers", () => {
   test("extractShellCommandFromArgv unwraps known dispatch wrappers before shell wrappers", () => {
     const cases = [
       ["/usr/bin/nice", "/bin/bash", "-lc", "echo hi"],
+      ["/usr/bin/caffeinate", "-d", "-w", "42", "/bin/bash", "-lc", "echo hi"],
+      ["/usr/bin/sandbox-exec", "-p", "(allow default)", "/bin/bash", "-lc", "echo hi"],
       ["/usr/bin/timeout", "--signal=TERM", "5", "zsh", "-lc", "echo hi"],
       ["/usr/bin/env", "/usr/bin/env", "/usr/bin/env", "/usr/bin/env", "/bin/sh", "-c", "echo hi"],
     ];

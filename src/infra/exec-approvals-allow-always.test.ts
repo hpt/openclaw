@@ -608,6 +608,99 @@ $0 \\"$1\\"" touch ${marker}`,
     });
   });
 
+  it("unwraps caffeinate wrappers and persists the inner executable instead", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const whoami = makeExecutable(dir, "whoami");
+    const patterns = resolveAllowAlwaysPatterns({
+      segments: [
+        {
+          raw: "/usr/bin/caffeinate -d -w 42 /bin/zsh -lc whoami",
+          argv: ["/usr/bin/caffeinate", "-d", "-w", "42", "/bin/zsh", "-lc", "whoami"],
+          resolution: makeMockCommandResolution({
+            execution: makeMockExecutableResolution({
+              rawExecutable: "/usr/bin/caffeinate",
+              resolvedPath: "/usr/bin/caffeinate",
+              executableName: "caffeinate",
+            }),
+          }),
+        },
+      ],
+      cwd: dir,
+      env: makePathEnv(dir),
+      platform: process.platform,
+    });
+    expect(patterns).toEqual([whoami]);
+    expect(patterns).not.toContain("/usr/bin/caffeinate");
+  });
+
+  it("unwraps sandbox-exec wrappers and persists the inner executable instead", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const whoami = makeExecutable(dir, "whoami");
+    const patterns = resolveAllowAlwaysPatterns({
+      segments: [
+        {
+          raw: "/usr/bin/sandbox-exec -p '(allow default)' /bin/zsh -lc whoami",
+          argv: ["/usr/bin/sandbox-exec", "-p", "(allow default)", "/bin/zsh", "-lc", "whoami"],
+          resolution: makeMockCommandResolution({
+            execution: makeMockExecutableResolution({
+              rawExecutable: "/usr/bin/sandbox-exec",
+              resolvedPath: "/usr/bin/sandbox-exec",
+              executableName: "sandbox-exec",
+            }),
+          }),
+        },
+      ],
+      cwd: dir,
+      env: makePathEnv(dir),
+      platform: process.platform,
+    });
+    expect(patterns).toEqual([whoami]);
+    expect(patterns).not.toContain("/usr/bin/sandbox-exec");
+  });
+
+  it("does not persist caffeinate or sandbox-exec when their options are not transparent", () => {
+    const caffeinate = resolveAllowAlwaysPatterns({
+      segments: [
+        {
+          raw: "/usr/bin/caffeinate -b /bin/zsh -lc whoami",
+          argv: ["/usr/bin/caffeinate", "-b", "/bin/zsh", "-lc", "whoami"],
+          resolution: makeMockCommandResolution({
+            execution: makeMockExecutableResolution({
+              rawExecutable: "/usr/bin/caffeinate",
+              resolvedPath: "/usr/bin/caffeinate",
+              executableName: "caffeinate",
+            }),
+          }),
+        },
+      ],
+      platform: process.platform,
+    });
+    const sandboxExec = resolveAllowAlwaysPatterns({
+      segments: [
+        {
+          raw: "/usr/bin/sandbox-exec -n no-network /bin/zsh -lc whoami",
+          argv: ["/usr/bin/sandbox-exec", "-n", "no-network", "/bin/zsh", "-lc", "whoami"],
+          resolution: makeMockCommandResolution({
+            execution: makeMockExecutableResolution({
+              rawExecutable: "/usr/bin/sandbox-exec",
+              resolvedPath: "/usr/bin/sandbox-exec",
+              executableName: "sandbox-exec",
+            }),
+          }),
+        },
+      ],
+      platform: process.platform,
+    });
+    expect(caffeinate).toEqual([]);
+    expect(sandboxExec).toEqual([]);
+  });
+
   it("prevents allow-always bypass for dispatch-wrapper + shell-wrapper chains", () => {
     if (process.platform === "win32") {
       return;
@@ -620,6 +713,40 @@ $0 \\"$1\\"" touch ${marker}`,
       dir,
       firstCommand: "/usr/bin/nice /bin/zsh -lc 'echo warmup-ok'",
       secondCommand: "/usr/bin/nice /bin/zsh -lc 'id > marker'",
+      env,
+      persistedPattern: echo,
+    });
+  });
+
+  it("prevents allow-always bypass for caffeinate wrapper chains", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    makeExecutable(dir, "id");
+    const env = makePathEnv(dir);
+    expectAllowAlwaysBypassBlocked({
+      dir,
+      firstCommand: "/usr/bin/caffeinate -d -w 42 /bin/zsh -lc 'echo warmup-ok'",
+      secondCommand: "/usr/bin/caffeinate -d -w 42 /bin/zsh -lc 'id > marker'",
+      env,
+      persistedPattern: echo,
+    });
+  });
+
+  it("prevents allow-always bypass for sandbox-exec wrapper chains", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    makeExecutable(dir, "id");
+    const env = makePathEnv(dir);
+    expectAllowAlwaysBypassBlocked({
+      dir,
+      firstCommand: "/usr/bin/sandbox-exec -p '(deny default)' /bin/zsh -lc 'echo warmup-ok'",
+      secondCommand: "/usr/bin/sandbox-exec -p '(allow default)' /bin/zsh -lc 'id > marker'",
       env,
       persistedPattern: echo,
     });
