@@ -40,6 +40,7 @@ describe("normalizeExecutableToken", () => {
 describe("wrapper classification", () => {
   test.each([
     { token: "sudo", dispatch: true, shell: false },
+    { token: "flock", dispatch: true, shell: false },
     { token: "time", dispatch: true, shell: false },
     { token: "timeout.exe", dispatch: true, shell: false },
     { token: "bash", dispatch: false, shell: true },
@@ -128,6 +129,38 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
       expected: { kind: "unwrapped", wrapper: "time", argv: ["bash", "-lc", "echo hi"] },
     },
     {
+      argv: ["flock", "-n", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "-en", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "-E", "1", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "-w5", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "-F", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "-o", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "--nb", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
+      argv: ["flock", "--wait", "1", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "unwrapped", wrapper: "flock", argv: ["bash", "-lc", "echo hi"] },
+    },
+    {
       argv: ["timeout", "--signal=TERM", "5s", "bash", "-lc", "echo hi"],
       expected: { kind: "unwrapped", wrapper: "timeout", argv: ["bash", "-lc", "echo hi"] },
     },
@@ -138,6 +171,22 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     {
       argv: ["timeout", "--bogus", "5s", "bash", "-lc", "echo hi"],
       expected: { kind: "blocked", wrapper: "timeout" },
+    },
+    {
+      argv: ["flock", "/tmp/openclaw.lock", "-c", "echo hi"],
+      expected: { kind: "blocked", wrapper: "flock" },
+    },
+    {
+      argv: ["flock", "-un", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "flock" },
+    },
+    {
+      argv: ["flock", "-u", "9"],
+      expected: { kind: "blocked", wrapper: "flock" },
+    },
+    {
+      argv: ["flock", "--verbose=1", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      expected: { kind: "blocked", wrapper: "flock" },
     },
   ])("unwraps known dispatch wrappers for %j", ({ argv, expected }) => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
@@ -182,6 +231,21 @@ describe("resolveDispatchWrapperTrustPlan", () => {
     {
       argv: ["time", "-p", "bash", "-lc", "echo hi"],
       wrapper: "time",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
+      argv: ["flock", "--timeout=2", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      wrapper: "flock",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
+      argv: ["flock", "--close", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      wrapper: "flock",
+      effectiveArgv: ["bash", "-lc", "echo hi"],
+    },
+    {
+      argv: ["flock", "--no-fork", "/tmp/openclaw.lock", "bash", "-lc", "echo hi"],
+      wrapper: "flock",
       effectiveArgv: ["bash", "-lc", "echo hi"],
     },
     {

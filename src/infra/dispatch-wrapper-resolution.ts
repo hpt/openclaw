@@ -44,6 +44,19 @@ const TIME_FLAG_OPTIONS = new Set([
 const TIME_OPTIONS_WITH_VALUE = new Set(["-f", "--format", "-o", "--output"]);
 const TIMEOUT_FLAG_OPTIONS = new Set(["--foreground", "--preserve-status", "-v", "--verbose"]);
 const TIMEOUT_OPTIONS_WITH_VALUE = new Set(["-k", "--kill-after", "-s", "--signal"]);
+// Short flags are case-sensitive: `-e` is exclusive, `-E` takes an exit code.
+const FLOCK_SHORT_FLAG_OPTIONS = new Set(["-e", "-F", "-n", "-o", "-s", "-x"]);
+const FLOCK_LONG_FLAG_OPTIONS = new Set([
+  "--close",
+  "--exclusive",
+  "--nb",
+  "--no-fork",
+  "--nonblock",
+  "--shared",
+  "--verbose",
+]);
+const FLOCK_SHORT_OPTIONS_WITH_VALUE = new Set(["-E", "-w"]);
+const FLOCK_LONG_OPTIONS_WITH_VALUE = new Set(["--conflict-exit-code", "--timeout", "--wait"]);
 
 type WrapperScanDirective = "continue" | "consume-next" | "stop" | "invalid";
 
@@ -259,6 +272,49 @@ function unwrapTimeInvocation(argv: string[]): string[] | null {
   });
 }
 
+function isFlockShortFlagCluster(token: string): boolean {
+  return /^-[eFnsxo]+$/.test(token);
+}
+
+function unwrapFlockInvocation(argv: string[]): string[] | null {
+  return scanWrapperInvocation(argv, {
+    separators: new Set(["--"]),
+    onToken: (token, lower) => {
+      if (!token.startsWith("-") || token === "-") {
+        return "stop";
+      }
+      const [lowerFlag, lowerInline] = lower.split("=", 2);
+      if (FLOCK_LONG_FLAG_OPTIONS.has(lowerFlag)) {
+        // Flag options do not accept `--flag=value`.
+        return lowerInline === undefined ? "continue" : "invalid";
+      }
+      if (FLOCK_LONG_OPTIONS_WITH_VALUE.has(lowerFlag)) {
+        return lowerInline === undefined ? "consume-next" : "continue";
+      }
+      // Keep the original token so `-E` is not folded into the `-e` flag.
+      if (isFlockShortFlagCluster(token) || FLOCK_SHORT_FLAG_OPTIONS.has(token)) {
+        return "continue";
+      }
+      if (FLOCK_SHORT_OPTIONS_WITH_VALUE.has(token)) {
+        return "consume-next";
+      }
+      if (/^-w\d+(?:\.\d+)?$/.test(token) || /^-E\d+$/.test(token)) {
+        return "continue";
+      }
+      return "invalid";
+    },
+    adjustCommandIndex: (commandIndex, currentArgv) => {
+      // The first non-option token is the lock target. Shell-string (`-c`),
+      // unlock, and fd-only forms never reach a safe wrapped executable.
+      const wrappedCommandIndex = commandIndex + 1;
+      const wrappedCommand = currentArgv[wrappedCommandIndex]?.trim() ?? "";
+      return wrappedCommand && (!wrappedCommand.startsWith("-") || wrappedCommand === "-")
+        ? wrappedCommandIndex
+        : null;
+    },
+  });
+}
+
 function unwrapTimeoutInvocation(argv: string[]): string[] | null {
   return unwrapDashOptionInvocation(argv, {
     onFlag: (flag, lower) => {
@@ -291,6 +347,7 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  { name: "flock", unwrap: unwrapFlockInvocation, transparentUsage: true },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },

@@ -44,6 +44,7 @@ describe("system run command helpers", () => {
   test("extractShellCommandFromArgv unwraps known dispatch wrappers before shell wrappers", () => {
     const cases = [
       ["/usr/bin/nice", "/bin/bash", "-lc", "echo hi"],
+      ["/usr/bin/flock", "/tmp/openclaw.lock", "/bin/bash", "-lc", "echo hi"],
       ["/usr/bin/timeout", "--signal=TERM", "5", "zsh", "-lc", "echo hi"],
       ["/usr/bin/env", "/usr/bin/env", "/usr/bin/env", "/usr/bin/env", "/bin/sh", "-c", "echo hi"],
     ];
