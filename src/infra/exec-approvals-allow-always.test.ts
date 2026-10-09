@@ -642,6 +642,45 @@ $0 \\"$1\\"" touch ${marker}`,
     });
   });
 
+  it("prevents allow-always bypass for opaque command carriers", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const unshare = makeExecutable(dir, "unshare");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = `${unshare} -- /bin/sh -c 'echo warmup-ok'`;
+    const secondCommand = `${unshare} -- /bin/sh -c 'id > marker'`;
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir,
+      env,
+      safeBins,
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(persisted).toEqual([]);
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: unshare }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("does not persist comment-tailed payload paths that never execute", () => {
     if (process.platform === "win32") {
       return;

@@ -213,6 +213,9 @@ For allow-always decisions in allowlist mode, known dispatch wrappers
 paths. Shell multiplexers (`busybox`, `toybox`) are also unwrapped for shell applets (`sh`, `ash`,
 etc.) so inner executables are persisted instead of multiplexer binaries. If a wrapper or
 multiplexer cannot be safely unwrapped, no allowlist entry is persisted automatically.
+Opaque command carriers such as `bwrap`, `firejail`, `nsenter`, `setpriv`, `su`, and `unshare`
+are not unwrapped. Allow-always does not persist them, and an existing allowlist entry for the
+wrapper binary does not authorize a later payload. One-shot approval still runs the original command.
 If you allowlist interpreters like `python3` or `node`, prefer `tools.exec.strictInlineEval=true` so inline eval still requires an explicit approval.
 
 Default safe bins:
