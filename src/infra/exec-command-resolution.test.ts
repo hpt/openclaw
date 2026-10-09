@@ -251,6 +251,67 @@ describe("exec-command-resolution", () => {
     expect(deep.allowlistEval.allowlistSatisfied).toBe(false);
   });
 
+  it("blocks opaque command-carrier allowlist matches", () => {
+    const wrapperNames = [
+      "bwrap",
+      "catchsegv",
+      "chroot",
+      "cpulimit",
+      "eatmydata",
+      "firejail",
+      "gosu",
+      "linux32",
+      "linux64",
+      "nsenter",
+      "numactl",
+      "pkexec",
+      "proot",
+      "proxychains",
+      "proxychains4",
+      "runuser",
+      "setarch",
+      "setpriv",
+      "su",
+      "systemd-run",
+      "torify",
+      "torsocks",
+      "unbuffer",
+      "unshare",
+      "watch",
+      "xvfb-run",
+    ];
+    for (const wrapperName of wrapperNames) {
+      const dir = makeTempDir();
+      const binDir = path.join(dir, "bin");
+      fs.mkdirSync(binDir, { recursive: true });
+      const wrapperFile = process.platform === "win32" ? `${wrapperName}.exe` : wrapperName;
+      const wrapperPath = path.join(binDir, wrapperFile);
+      const payloadFile = process.platform === "win32" ? "python3.exe" : "python3";
+      const payloadPath = path.join(binDir, payloadFile);
+      fs.writeFileSync(wrapperPath, "");
+      fs.writeFileSync(payloadPath, "");
+      fs.chmodSync(wrapperPath, 0o755);
+      fs.chmodSync(payloadPath, 0o755);
+      const env = makePathEnv(binDir);
+      const argv = [wrapperPath, payloadPath, "-c", "print(1)"];
+      const resolution = resolveCommandResolutionFromArgv(argv, dir, env);
+      const segment = { raw: argv.join(" "), argv, resolution };
+
+      expect(resolution?.policyBlocked, wrapperName).toBe(true);
+      expect(resolution?.blockedWrapper, wrapperName).toBe(wrapperName);
+      expect(resolvePlannedSegmentArgv(segment), wrapperName).toBeNull();
+
+      const evaluation = evaluateExecAllowlist({
+        analysis: { ok: true, segments: [segment] },
+        allowlist: [{ pattern: wrapperPath }],
+        safeBins: normalizeSafeBins([]),
+        cwd: dir,
+        env,
+      });
+      expect(evaluation.allowlistSatisfied, wrapperName).toBe(false);
+    }
+  });
+
   it("resolves allowlist candidate paths from unresolved raw executables", () => {
     expect(
       resolveExecutionTargetCandidatePath(

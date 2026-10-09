@@ -143,15 +143,45 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
   });
 
-  test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
-    "fails closed for blocked dispatch wrapper %s",
-    (wrapper) => {
-      expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
-        kind: "blocked",
-        wrapper,
-      });
-    },
-  );
+  test.each([
+    "bwrap",
+    "catchsegv",
+    "chroot",
+    "chrt",
+    "cpulimit",
+    "doas",
+    "eatmydata",
+    "firejail",
+    "gosu",
+    "ionice",
+    "linux32",
+    "linux64",
+    "nsenter",
+    "numactl",
+    "pkexec",
+    "proot",
+    "proxychains",
+    "proxychains4",
+    "runuser",
+    "setarch",
+    "setpriv",
+    "setsid",
+    "su",
+    "sudo",
+    "systemd-run",
+    "taskset",
+    "torify",
+    "torsocks",
+    "unbuffer",
+    "unshare",
+    "watch",
+    "xvfb-run",
+  ])("fails closed for blocked dispatch wrapper %s", (wrapper) => {
+    expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
+      kind: "blocked",
+      wrapper,
+    });
+  });
 });
 
 describe("resolveDispatchWrapperTrustPlan", () => {
