@@ -44,6 +44,7 @@ describe("wrapper classification", () => {
     { token: "timeout.exe", dispatch: true, shell: false },
     { token: "bash", dispatch: false, shell: true },
     { token: "pwsh.exe", dispatch: false, shell: true },
+    { token: "npm.cmd", dispatch: true, shell: false },
     { token: "node", dispatch: false, shell: false },
   ])("classifies wrappers for %j", ({ token, dispatch, shell }) => {
     expect(isDispatchWrapperExecutable(token)).toBe(dispatch);
@@ -143,15 +144,26 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
   });
 
-  test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
-    "fails closed for blocked dispatch wrapper %s",
-    (wrapper) => {
-      expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
-        kind: "blocked",
-        wrapper,
-      });
-    },
-  );
+  test.each([
+    "bunx",
+    "chrt",
+    "doas",
+    "ionice",
+    "npm",
+    "npx",
+    "pnpm",
+    "pnpx",
+    "setsid",
+    "sudo",
+    "taskset",
+    "yarn",
+    "yarnpkg",
+  ])("fails closed for blocked dispatch wrapper %s", (wrapper) => {
+    expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
+      kind: "blocked",
+      wrapper,
+    });
+  });
 });
 
 describe("resolveDispatchWrapperTrustPlan", () => {

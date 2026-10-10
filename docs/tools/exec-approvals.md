@@ -213,6 +213,10 @@ For allow-always decisions in allowlist mode, known dispatch wrappers
 paths. Shell multiplexers (`busybox`, `toybox`) are also unwrapped for shell applets (`sh`, `ash`,
 etc.) so inner executables are persisted instead of multiplexer binaries. If a wrapper or
 multiplexer cannot be safely unwrapped, no allowlist entry is persisted automatically.
+Package-manager launchers (`bunx`, `npm`, `npx`, `pnpm`, `pnpx`, `yarn`, `yarnpkg`) are unparsed
+command carriers: allow-always does not persist the launcher, and an allowlist entry for that
+path does not approve a later invocation. Those binaries can run package bins, package scripts,
+and install lifecycle code.
 If you allowlist interpreters like `python3` or `node`, prefer `tools.exec.strictInlineEval=true` so inline eval still requires an explicit approval.
 
 Default safe bins:
