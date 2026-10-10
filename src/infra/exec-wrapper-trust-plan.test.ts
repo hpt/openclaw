@@ -18,6 +18,20 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("fails closed for package manager launchers", () => {
+    expect(
+      resolveExecWrapperTrustPlan(["/usr/bin/npm", "exec", "--", "/bin/echo", "warmup-ok"]),
+    ).toEqual({
+      argv: ["/usr/bin/npm", "exec", "--", "/bin/echo", "warmup-ok"],
+      policyArgv: ["/usr/bin/npm", "exec", "--", "/bin/echo", "warmup-ok"],
+      wrapperChain: [],
+      policyBlocked: true,
+      blockedWrapper: "npm",
+      shellWrapperExecutable: false,
+      shellInlineCommand: null,
+    });
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],

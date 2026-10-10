@@ -608,6 +608,60 @@ $0 \\"$1\\"" touch ${marker}`,
     });
   });
 
+  it.each(["bunx", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"])(
+    "prevents allow-always bypass for %s package manager launchers",
+    (launcher) => {
+      const dir = makeTempDir();
+      const launcherPath = makeExecutable(dir, launcher);
+      const echo = makeExecutable(dir, "echo");
+      makeExecutable(dir, "id");
+      const env = makePathEnv(dir);
+      const safeBins = resolveSafeBins(undefined);
+      const { persisted } = resolvePersistedPatterns({
+        command: `${launcherPath} exec -- ${echo} warmup-ok`,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command: `${launcherPath} exec -- id`,
+        allowlist: [{ pattern: launcherPath }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.analysisOk).toBe(true);
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it("does not persist an inner executable behind a package manager launcher", () => {
+    const dir = makeTempDir();
+    const launcherPath = makeExecutable(dir, "npx");
+    const echo = makeExecutable(dir, "echo");
+    const env = makePathEnv(dir);
+    const { persisted } = resolvePersistedPatterns({
+      command: `/usr/bin/nice ${launcherPath} --yes evil-package`,
+      dir,
+      env,
+      safeBins: resolveSafeBins(undefined),
+    });
+    expect(persisted).toEqual([]);
+    expect(persisted).not.toContain(echo);
+    expect(persisted).not.toContain(launcherPath);
+  });
+
   it("prevents allow-always bypass for dispatch-wrapper + shell-wrapper chains", () => {
     if (process.platform === "win32") {
       return;

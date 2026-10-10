@@ -300,6 +300,15 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // Package managers execute arbitrary bins, scripts, and lifecycle code.
+  // No unwrap parser is available, so allow-always must not persist the launcher.
+  { name: "bunx" },
+  { name: "npm" },
+  { name: "npx" },
+  { name: "pnpm" },
+  { name: "pnpx" },
+  { name: "yarn" },
+  { name: "yarnpkg" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
