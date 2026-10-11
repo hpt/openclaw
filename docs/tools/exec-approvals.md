@@ -213,6 +213,10 @@ For allow-always decisions in allowlist mode, known dispatch wrappers
 paths. Shell multiplexers (`busybox`, `toybox`) are also unwrapped for shell applets (`sh`, `ash`,
 etc.) so inner executables are persisted instead of multiplexer binaries. If a wrapper or
 multiplexer cannot be safely unwrapped, no allowlist entry is persisted automatically.
+Command runners that execute another program (`capsh`, `choom`, `corepack`, `dbus-launch`,
+`dbus-run-session`, `prlimit`, `runcon`, `sg`, `start-stop-daemon`, `systemd-cat`,
+`systemd-inhibit`) are in that fail-closed set: an allowlist entry for the carrier path does
+not authorize a later payload. One-shot approval still runs the original command.
 If you allowlist interpreters like `python3` or `node`, prefer `tools.exec.strictInlineEval=true` so inline eval still requires an explicit approval.
 
 Default safe bins:
