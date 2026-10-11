@@ -284,7 +284,14 @@ type DispatchWrapperSpec = {
 };
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
+  // Command carriers have no unwrap parser. Allow-always must not persist the
+  // carrier path, or a later payload skips exec approval.
+  { name: "capsh" },
+  { name: "choom" },
   { name: "chrt" },
+  { name: "corepack" },
+  { name: "dbus-launch" },
+  { name: "dbus-run-session" },
   { name: "doas" },
   {
     name: "env",
@@ -294,9 +301,15 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
+  { name: "prlimit" },
+  { name: "runcon" },
   { name: "setsid" },
+  { name: "sg" },
+  { name: "start-stop-daemon" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },
+  { name: "systemd-cat" },
+  { name: "systemd-inhibit" },
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },

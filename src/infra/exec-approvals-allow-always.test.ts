@@ -570,6 +570,62 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for command-runner carriers", () => {
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    makeExecutable(dir, "id");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const carriers = [
+      "capsh",
+      "choom",
+      "corepack",
+      "dbus-launch",
+      "dbus-run-session",
+      "prlimit",
+      "runcon",
+      "sg",
+      "start-stop-daemon",
+      "systemd-cat",
+      "systemd-inhibit",
+    ];
+    for (const name of carriers) {
+      const carrier = makeExecutable(dir, name);
+      const firstCommand = `${carrier} -- /bin/sh -c 'echo warmup-ok'`;
+      const secondCommand = `${carrier} -- /bin/sh -c 'id > marker'`;
+      const { persisted } = resolvePersistedPatterns({
+        command: firstCommand,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(persisted, name).toEqual([]);
+      expect(persisted, name).not.toContain(carrier);
+      expect(persisted, name).not.toContain(echo);
+
+      const second = evaluateShellAllowlist({
+        command: secondCommand,
+        allowlist: [{ pattern: carrier }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.analysisOk, name).toBe(true);
+      expect(second.allowlistSatisfied, name).toBe(false);
+      expect(second.segments[0]?.resolution?.policyBlocked, name).toBe(true);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+        name,
+      ).toBe(true);
+    }
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
