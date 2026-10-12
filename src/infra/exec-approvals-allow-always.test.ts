@@ -570,6 +570,59 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for dynamic linker and xargs carriers", () => {
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    const nice = makeExecutable(dir, "nice");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const carriers = [
+      makeExecutable(dir, "ld.so"),
+      makeExecutable(dir, "ld-linux-x86-64.so.2"),
+      makeExecutable(dir, "ld-musl-x86_64.so.1"),
+      makeExecutable(dir, "xargs"),
+    ];
+
+    for (const carrier of carriers) {
+      const first = resolvePersistedPatterns({
+        command: `${carrier} ${echo} warmup-ok`,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(first.analysis.analysisOk).toBe(true);
+      expect(first.persisted).toEqual([]);
+
+      const wrapped = resolvePersistedPatterns({
+        command: `${nice} ${carrier} ${echo} payload`,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(wrapped.analysis.analysisOk).toBe(true);
+      expect(wrapped.persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command: `${carrier} ${echo} marker`,
+        allowlist: [{ pattern: carrier }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.analysisOk).toBe(true);
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    }
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [

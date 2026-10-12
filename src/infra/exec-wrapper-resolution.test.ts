@@ -45,6 +45,10 @@ describe("wrapper classification", () => {
     { token: "bash", dispatch: false, shell: true },
     { token: "pwsh.exe", dispatch: false, shell: true },
     { token: "node", dispatch: false, shell: false },
+    { token: "xargs", dispatch: true, shell: false },
+    { token: "/usr/bin/ld.so", dispatch: true, shell: false },
+    { token: "ld-linux-x86-64.so.2", dispatch: true, shell: false },
+    { token: "ldconfig", dispatch: false, shell: false },
   ])("classifies wrappers for %j", ({ token, dispatch, shell }) => {
     expect(isDispatchWrapperExecutable(token)).toBe(dispatch);
     expect(isShellWrapperExecutable(token)).toBe(shell);
@@ -152,6 +156,22 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
       });
     },
   );
+
+  test.each([
+    "xargs",
+    "ld.so",
+    "ld.so.1",
+    "/usr/bin/ld.so",
+    "/lib64/ld-linux-x86-64.so.2",
+    "ld-linux.so.2",
+    "ld-musl-x86_64.so.1",
+  ])("fails closed for opaque command carrier %s", (wrapper) => {
+    expect(unwrapKnownDispatchWrapperInvocation([wrapper, "/bin/echo", "hi"])).toEqual({
+      kind: "blocked",
+      wrapper: normalizeExecutableToken(wrapper),
+    });
+    expect(isDispatchWrapperExecutable(wrapper)).toBe(true);
+  });
 });
 
 describe("resolveDispatchWrapperTrustPlan", () => {

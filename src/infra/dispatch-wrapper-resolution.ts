@@ -300,6 +300,9 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // xargs runs whatever command follows it. There is no unwrap parser, so
+  // allow-always must not persist the xargs path.
+  { name: "xargs" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
@@ -335,8 +338,21 @@ function unwrapDispatchWrapper(
     : blockDispatchWrapper(wrapper);
 }
 
+// Dynamic linkers execute the next ELF. Names vary by libc and architecture
+// (`ld.so`, `ld-linux-x86-64.so.2`, `ld-musl-x86_64.so.1`), and there is no
+// safe unwrap, so allow-always must not persist the linker path.
+function isDynamicLinkerBasename(base: string): boolean {
+  return (
+    base === "ld.so" ||
+    base.startsWith("ld.so.") ||
+    base.startsWith("ld-linux") ||
+    base.startsWith("ld-musl")
+  );
+}
+
 export function isDispatchWrapperExecutable(token: string): boolean {
-  return DISPATCH_WRAPPER_SPEC_BY_NAME.has(normalizeExecutableToken(token));
+  const normalized = normalizeExecutableToken(token);
+  return DISPATCH_WRAPPER_SPEC_BY_NAME.has(normalized) || isDynamicLinkerBasename(normalized);
 }
 
 export function unwrapKnownDispatchWrapperInvocation(argv: string[]): DispatchWrapperUnwrapResult {
@@ -345,6 +361,9 @@ export function unwrapKnownDispatchWrapperInvocation(argv: string[]): DispatchWr
     return { kind: "not-wrapper" };
   }
   const wrapper = normalizeExecutableToken(token0);
+  if (isDynamicLinkerBasename(wrapper)) {
+    return blockDispatchWrapper(wrapper);
+  }
   const spec = DISPATCH_WRAPPER_SPEC_BY_NAME.get(wrapper);
   if (!spec) {
     return { kind: "not-wrapper" };

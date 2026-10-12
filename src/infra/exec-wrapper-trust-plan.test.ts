@@ -18,6 +18,20 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("fails closed for dynamic linker and xargs carriers", () => {
+    for (const argv of [
+      ["/usr/bin/ld.so", "/bin/echo", "warmup-ok"],
+      ["/lib64/ld-linux-x86-64.so.2", "/bin/sh", "-c", "id"],
+      ["ld-musl-x86_64.so.1", "/bin/echo", "hi"],
+      ["xargs", "/bin/sh", "-c", "id"],
+      ["/usr/bin/nice", "/usr/bin/ld.so", "/bin/sh", "-c", "id"],
+    ]) {
+      const plan = resolveExecWrapperTrustPlan(argv);
+      expect(plan.policyBlocked).toBe(true);
+      expect(plan.shellInlineCommand).toBeNull();
+    }
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],
