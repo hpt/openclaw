@@ -18,6 +18,30 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("fails closed for ssh-agent and gpg-agent carriers", () => {
+    for (const argv of [
+      ["/usr/bin/ssh-agent", "/bin/echo", "warmup-ok"],
+      ["/usr/bin/ssh-agent", "-t", "1", "/bin/sh", "-c", "id"],
+      ["/usr/bin/gpg-agent", "--daemon", "/bin/sh", "-c", "id"],
+      ["/usr/bin/nice", "/usr/bin/ssh-agent", "/bin/sh", "-c", "id"],
+    ]) {
+      const plan = resolveExecWrapperTrustPlan(argv);
+      expect(plan.policyBlocked).toBe(true);
+      expect(plan.shellInlineCommand).toBeNull();
+    }
+  });
+
+  test("unwraps rbash inline commands like other posix shells", () => {
+    expect(resolveExecWrapperTrustPlan(["rbash", "-c", "echo hi"])).toEqual({
+      argv: ["rbash", "-c", "echo hi"],
+      policyArgv: ["rbash", "-c", "echo hi"],
+      wrapperChain: [],
+      policyBlocked: false,
+      shellWrapperExecutable: true,
+      shellInlineCommand: "echo hi",
+    });
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],

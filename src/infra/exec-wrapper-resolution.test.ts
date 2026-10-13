@@ -43,8 +43,12 @@ describe("wrapper classification", () => {
     { token: "time", dispatch: true, shell: false },
     { token: "timeout.exe", dispatch: true, shell: false },
     { token: "bash", dispatch: false, shell: true },
+    { token: "rbash", dispatch: false, shell: true },
+    { token: "/bin/rbash", dispatch: false, shell: true },
     { token: "pwsh.exe", dispatch: false, shell: true },
     { token: "node", dispatch: false, shell: false },
+    { token: "ssh-agent", dispatch: true, shell: false },
+    { token: "/usr/bin/gpg-agent", dispatch: true, shell: false },
   ])("classifies wrappers for %j", ({ token, dispatch, shell }) => {
     expect(isDispatchWrapperExecutable(token)).toBe(dispatch);
     expect(isShellWrapperExecutable(token)).toBe(shell);
@@ -143,7 +147,7 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
   });
 
-  test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
+  test.each(["chrt", "doas", "gpg-agent", "ionice", "setsid", "ssh-agent", "sudo", "taskset"])(
     "fails closed for blocked dispatch wrapper %s",
     (wrapper) => {
       expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({

@@ -291,10 +291,16 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  // `gpg-agent --daemon` executes the following command. There is no unwrap
+  // parser, so allow-always must not persist the agent path.
+  { name: "gpg-agent" },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
   { name: "setsid" },
+  // `ssh-agent` executes the following command. There is no unwrap parser, so
+  // allow-always must not persist the agent path.
+  { name: "ssh-agent" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },
   { name: "taskset" },

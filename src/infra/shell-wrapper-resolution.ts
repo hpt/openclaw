@@ -10,7 +10,18 @@ import {
   resolveInlineCommandMatch,
 } from "./shell-inline-command.js";
 
-const POSIX_SHELL_WRAPPER_NAMES = ["ash", "bash", "dash", "fish", "ksh", "sh", "zsh"] as const;
+// `rbash` is bash under a restricted argv0. It still honors `-c`, so allow-always
+// must persist the inner command rather than the restricted-shell path.
+const POSIX_SHELL_WRAPPER_NAMES = [
+  "ash",
+  "bash",
+  "dash",
+  "fish",
+  "ksh",
+  "rbash",
+  "sh",
+  "zsh",
+] as const;
 const WINDOWS_CMD_WRAPPER_NAMES = ["cmd"] as const;
 const POWERSHELL_WRAPPER_NAMES = ["powershell", "pwsh"] as const;
 const SHELL_MULTIPLEXER_WRAPPER_NAMES = ["busybox", "toybox"] as const;
