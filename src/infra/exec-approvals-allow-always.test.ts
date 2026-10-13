@@ -570,6 +570,96 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for ssh-agent and gpg-agent carriers", () => {
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    const nice = makeExecutable(dir, "nice");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const carriers = [makeExecutable(dir, "ssh-agent"), makeExecutable(dir, "gpg-agent")];
+
+    for (const carrier of carriers) {
+      const first = resolvePersistedPatterns({
+        command: `${carrier} ${echo} warmup-ok`,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(first.analysis.analysisOk).toBe(true);
+      expect(first.persisted).toEqual([]);
+
+      const wrapped = resolvePersistedPatterns({
+        command: `${nice} ${carrier} ${echo} payload`,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(wrapped.analysis.analysisOk).toBe(true);
+      expect(wrapped.persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command: `${carrier} --daemon ${echo} marker`,
+        allowlist: [{ pattern: carrier }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.analysisOk).toBe(true);
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("persists the inner command for rbash instead of the restricted shell", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const echo = makeExecutable(dir, "echo");
+    const payload = makeExecutable(dir, "payloadbin");
+    const rbash = makeExecutable(dir, "rbash");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+
+    const first = resolvePersistedPatterns({
+      command: "rbash -c 'echo warmup'",
+      dir,
+      env,
+      safeBins,
+    });
+    expect(first.analysis.analysisOk).toBe(true);
+    expect(first.persisted).toEqual([echo]);
+    expect(first.persisted).not.toContain(rbash);
+    expect(first.persisted).not.toContain(payload);
+
+    const otherPayload = evaluateShellAllowlist({
+      command: "rbash -c payloadbin",
+      allowlist: [{ pattern: echo }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(otherPayload.analysisOk).toBe(true);
+    expect(otherPayload.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: otherPayload.analysisOk,
+        allowlistSatisfied: otherPayload.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
