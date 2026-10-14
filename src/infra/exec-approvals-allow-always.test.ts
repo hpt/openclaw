@@ -570,6 +570,40 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for gpg-connect-agent command execution", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const safeBins = resolveSafeBins(undefined);
+    const wrapper = "/usr/bin/gpg-connect-agent";
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: `${wrapper} --exec /bin/echo warmup-ok`,
+      dir: process.cwd(),
+      env: process.env,
+      safeBins,
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(persisted).toEqual([]);
+
+    const second = evaluateShellAllowlist({
+      command: `${wrapper} --exec /bin/sh -c 'id > marker'`,
+      allowlist: [{ pattern: wrapper }],
+      safeBins,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
