@@ -570,6 +570,59 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it.each([
+    {
+      wrapper: "scriptlive",
+      firstCommand: "/usr/bin/scriptlive -c 'echo warmup-ok'",
+      secondCommand: "/usr/bin/scriptlive -c 'id > marker'",
+    },
+    {
+      wrapper: "systemd-socket-activate",
+      firstCommand: "/usr/bin/systemd-socket-activate -l 127.0.0.1:9 /bin/echo warmup-ok",
+      secondCommand: "/usr/bin/systemd-socket-activate -l 127.0.0.1:9 /bin/sh -c 'id > marker'",
+    },
+    {
+      wrapper: "tmux",
+      firstCommand: "/usr/bin/tmux new-session -d /bin/echo warmup-ok",
+      secondCommand: "/usr/bin/tmux new-session -d /bin/sh -c 'id > marker'",
+    },
+  ])(
+    "prevents allow-always bypass for $wrapper command execution",
+    ({ wrapper, firstCommand, secondCommand }) => {
+      if (process.platform === "win32") {
+        return;
+      }
+      const safeBins = resolveSafeBins(undefined);
+      const { analysis, persisted } = resolvePersistedPatterns({
+        command: firstCommand,
+        dir: process.cwd(),
+        env: process.env,
+        safeBins,
+      });
+      expect(analysis.analysisOk).toBe(true);
+      expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+      expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe(wrapper);
+      expect(persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command: secondCommand,
+        allowlist: [{ pattern: `/usr/bin/${wrapper}` }],
+        safeBins,
+        platform: process.platform,
+      });
+      expect(second.analysisOk).toBe(true);
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    },
+  );
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
