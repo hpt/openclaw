@@ -294,12 +294,18 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
+  // scriptlive -c runs a shell command before replay finishes. No safe unwrap parser.
+  { name: "scriptlive" },
   { name: "setsid" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },
+  // systemd-socket-activate execs its trailing command when a connection arrives.
+  { name: "systemd-socket-activate" },
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // tmux new-session/split-window run a trailing command. Subcommand parsing is unsafe.
+  { name: "tmux" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(

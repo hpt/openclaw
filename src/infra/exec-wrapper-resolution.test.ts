@@ -143,15 +143,22 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
   });
 
-  test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
-    "fails closed for blocked dispatch wrapper %s",
-    (wrapper) => {
-      expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
-        kind: "blocked",
-        wrapper,
-      });
-    },
-  );
+  test.each([
+    "chrt",
+    "doas",
+    "ionice",
+    "scriptlive",
+    "setsid",
+    "sudo",
+    "systemd-socket-activate",
+    "taskset",
+    "tmux",
+  ])("fails closed for blocked dispatch wrapper %s", (wrapper) => {
+    expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
+      kind: "blocked",
+      wrapper,
+    });
+  });
 });
 
 describe("resolveDispatchWrapperTrustPlan", () => {
