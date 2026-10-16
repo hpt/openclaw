@@ -220,6 +220,12 @@ describe("isDangerousHostEnvOverrideVarName", () => {
     expect(isDangerousHostEnvOverrideVarName("zdotdir")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("GIT_SSH_COMMAND")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("editor")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("SENSIBLE_EDITOR")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("selected_editor")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("SENSIBLE_PAGER")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("browser")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("TERMINAL_EMULATOR")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("sensible_terminal_emulator")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("NPM_CONFIG_USERCONFIG")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("git_config_global")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("GRADLE_USER_HOME")).toBe(true);
@@ -234,6 +240,44 @@ describe("isDangerousHostEnvOverrideVarName", () => {
     expect(isDangerousHostEnvOverrideVarName("xdg_config_home")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("BASH_ENV")).toBe(false);
     expect(isDangerousHostEnvOverrideVarName("FOO")).toBe(false);
+  });
+});
+
+describe("sensible-utils command carriers", () => {
+  it("rejects agent overrides and preserves inherited helper commands", () => {
+    const result = sanitizeHostExecEnvWithDiagnostics({
+      baseEnv: {
+        PATH: "/usr/bin:/bin",
+        SENSIBLE_EDITOR: "nano",
+        BROWSER: "firefox",
+      },
+      overrides: {
+        SENSIBLE_EDITOR: "touch /tmp/pwned",
+        SELECTED_EDITOR: "touch /tmp/pwned",
+        SENSIBLE_PAGER: "touch /tmp/pwned",
+        BROWSER: "touch /tmp/pwned",
+        TERMINAL_EMULATOR: "touch /tmp/pwned",
+        SENSIBLE_TERMINAL_EMULATOR: "touch /tmp/pwned",
+        SAFE: "ok",
+      },
+    });
+
+    expect(result.rejectedOverrideBlockedKeys).toEqual([
+      "BROWSER",
+      "SELECTED_EDITOR",
+      "SENSIBLE_EDITOR",
+      "SENSIBLE_PAGER",
+      "SENSIBLE_TERMINAL_EMULATOR",
+      "TERMINAL_EMULATOR",
+    ]);
+    expect(result.rejectedOverrideInvalidKeys).toEqual([]);
+    expect(result.env.SENSIBLE_EDITOR).toBe("nano");
+    expect(result.env.BROWSER).toBe("firefox");
+    expect(result.env.SELECTED_EDITOR).toBeUndefined();
+    expect(result.env.SENSIBLE_PAGER).toBeUndefined();
+    expect(result.env.TERMINAL_EMULATOR).toBeUndefined();
+    expect(result.env.SENSIBLE_TERMINAL_EMULATOR).toBeUndefined();
+    expect(result.env.SAFE).toBe("ok");
   });
 });
 
