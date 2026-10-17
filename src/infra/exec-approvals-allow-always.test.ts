@@ -570,6 +570,46 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("fails closed for setarch personality applets", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    for (const name of ["athlon", "i386", "i486", "i586", "i686", "uname26", "x86_64"]) {
+      const wrapper = makeExecutable(dir, name);
+      const benign = `${wrapper} /bin/true`;
+      const payload = `${wrapper} /bin/sh -c id`;
+      const { persisted } = resolvePersistedPatterns({
+        command: benign,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(persisted).toEqual([]);
+
+      const evaluation = evaluateShellAllowlist({
+        command: payload,
+        allowlist: [{ pattern: wrapper }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(evaluation.analysisOk).toBe(true);
+      expect(evaluation.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: evaluation.analysisOk,
+          allowlistSatisfied: evaluation.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    }
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [

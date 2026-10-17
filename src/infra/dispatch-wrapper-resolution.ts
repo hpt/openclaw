@@ -284,6 +284,9 @@ type DispatchWrapperSpec = {
 };
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
+  // setarch personality applets (athlon, i386-i686, uname26, x86_64) exec the
+  // trailing program and have no unwrap parser.
+  { name: "athlon" },
   { name: "chrt" },
   { name: "doas" },
   {
@@ -291,6 +294,10 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  { name: "i386" },
+  { name: "i486" },
+  { name: "i586" },
+  { name: "i686" },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
@@ -300,6 +307,8 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  { name: "uname26" },
+  { name: "x86_64" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
