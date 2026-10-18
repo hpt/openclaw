@@ -570,6 +570,42 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for run-parts directory execution", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = "/usr/bin/run-parts /etc/cron.daily";
+    const secondCommand = "/usr/bin/run-parts --regex '.*' /tmp/payload-scripts";
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir: process.cwd(),
+      env: process.env,
+      safeBins,
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe("run-parts");
+    expect(persisted).toEqual([]);
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: "/usr/bin/run-parts" }],
+      safeBins,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
