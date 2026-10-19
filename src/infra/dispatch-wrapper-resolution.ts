@@ -300,6 +300,11 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // Terminal emulators run a caller-supplied command via -e/--command/--execute.
+  // Their option surface is too wide to unwrap safely.
+  { name: "x-terminal-emulator" },
+  { name: "xfce4-terminal" },
+  { name: "xfce4-terminal.wrapper" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
