@@ -570,6 +570,59 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it.each([
+    {
+      wrapper: "xfce4-terminal",
+      firstCommand: "/usr/bin/xfce4-terminal -e /bin/echo warmup-ok",
+      secondCommand: "/usr/bin/xfce4-terminal -e /bin/sh -c 'id > marker'",
+    },
+    {
+      wrapper: "xfce4-terminal.wrapper",
+      firstCommand: "/usr/bin/xfce4-terminal.wrapper -e /bin/echo warmup-ok",
+      secondCommand: "/usr/bin/xfce4-terminal.wrapper -e /bin/sh -c 'id > marker'",
+    },
+    {
+      wrapper: "x-terminal-emulator",
+      firstCommand: "/usr/bin/x-terminal-emulator -e /bin/echo warmup-ok",
+      secondCommand: "/usr/bin/x-terminal-emulator -e /bin/sh -c 'id > marker'",
+    },
+  ])(
+    "prevents allow-always bypass for $wrapper command execution",
+    ({ wrapper, firstCommand, secondCommand }) => {
+      if (process.platform === "win32") {
+        return;
+      }
+      const safeBins = resolveSafeBins(undefined);
+      const { analysis, persisted } = resolvePersistedPatterns({
+        command: firstCommand,
+        dir: process.cwd(),
+        env: process.env,
+        safeBins,
+      });
+      expect(analysis.analysisOk).toBe(true);
+      expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+      expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe(wrapper);
+      expect(persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command: secondCommand,
+        allowlist: [{ pattern: `/usr/bin/${wrapper}` }],
+        safeBins,
+        platform: process.platform,
+      });
+      expect(second.analysisOk).toBe(true);
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    },
+  );
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
