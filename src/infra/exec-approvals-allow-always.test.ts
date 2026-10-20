@@ -570,6 +570,42 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for sensible-terminal command execution", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = "/usr/bin/sensible-terminal -e /bin/echo warmup-ok";
+    const secondCommand = "/usr/bin/sensible-terminal -e /bin/sh -c 'id > marker'";
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir: process.cwd(),
+      env: process.env,
+      safeBins,
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe("sensible-terminal");
+    expect(persisted).toEqual([]);
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: "/usr/bin/sensible-terminal" }],
+      safeBins,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [

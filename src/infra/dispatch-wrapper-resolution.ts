@@ -300,6 +300,8 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // Debian sensible-utils forwards argv, including `-e`, to a terminal emulator.
+  { name: "sensible-terminal" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
