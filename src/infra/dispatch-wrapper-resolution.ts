@@ -291,6 +291,9 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  // XFCE launcher. `--launch TerminalEmulator` forwards a caller-supplied command
+  // to a terminal, and there is no safe argv parser for the other launch types.
+  { name: "exo-open" },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
