@@ -590,6 +590,46 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for exo-open terminal launches", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const exoOpen = makeExecutable(dir, "exo-open");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = `${exoOpen} --launch TerminalEmulator /bin/echo warmup-ok`;
+    const secondCommand = `${exoOpen} --launch TerminalEmulator /bin/sh -c 'id > marker'`;
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir,
+      env,
+      safeBins,
+    });
+    expect(persisted).toEqual([]);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe("exo-open");
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: exoOpen }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("prevents allow-always bypass for busybox shell applets", () => {
     if (process.platform === "win32") {
       return;
