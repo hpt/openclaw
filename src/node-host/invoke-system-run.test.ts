@@ -1254,6 +1254,36 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     });
   });
 
+  it("requires explicit approval for clustered python -c when strictInlineEval is enabled", async () => {
+    setRuntimeConfigSnapshot({
+      tools: {
+        exec: {
+          strictInlineEval: true,
+        },
+      },
+    });
+    try {
+      const { runCommand, sendInvokeResult, sendNodeEvent } = await runSystemInvoke({
+        preferMacAppExecHost: false,
+        command: ["python3", "-Bc", "print('hi')"],
+        security: "full",
+        ask: "off",
+      });
+
+      expect(runCommand).not.toHaveBeenCalled();
+      expect(sendNodeEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        "exec.denied",
+        expect.objectContaining({ reason: "approval-required" }),
+      );
+      expectInvokeErrorMessage(sendInvokeResult, {
+        message: "python3 -c requires explicit approval in strictInlineEval mode",
+      });
+    } finally {
+      clearRuntimeConfigSnapshot();
+    }
+  });
+
   it("requires explicit approval for inline eval when strictInlineEval is enabled", async () => {
     setRuntimeConfigSnapshot({
       tools: {
