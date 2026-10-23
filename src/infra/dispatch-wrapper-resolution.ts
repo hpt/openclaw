@@ -306,6 +306,33 @@ const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
   DISPATCH_WRAPPER_SPECS.map((spec) => [spec.name, spec] as const),
 );
 
+const GPROFNG_DRIVER_SUFFIX = "-gprofng";
+const GPROFNG_COLLECT_APP_SUFFIX = "-gp-collect-app";
+
+// `gprofng collect app` and `gp-collect-app` execute a caller-supplied target.
+// Debian multiarch builds also install `<triplet>-gprofng` and
+// `<triplet>-gp-collect-app`. There is no unwrap parser, so every form is
+// policy-blocked. Display and archive applets stay ordinary executables.
+function gprofngCollectCarrierName(token: string): string | null {
+  const normalized = normalizeExecutableToken(token);
+  if (normalized === "gprofng" || normalized === "gp-collect-app") {
+    return normalized;
+  }
+  if (
+    normalized.endsWith(GPROFNG_DRIVER_SUFFIX) &&
+    normalized.length > GPROFNG_DRIVER_SUFFIX.length
+  ) {
+    return normalized;
+  }
+  if (
+    normalized.endsWith(GPROFNG_COLLECT_APP_SUFFIX) &&
+    normalized.length > GPROFNG_COLLECT_APP_SUFFIX.length
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 export const DISPATCH_WRAPPER_EXECUTABLES = new Set(
   withWindowsExeAliases(DISPATCH_WRAPPER_SPECS.map((spec) => spec.name)),
 );
@@ -336,13 +363,20 @@ function unwrapDispatchWrapper(
 }
 
 export function isDispatchWrapperExecutable(token: string): boolean {
-  return DISPATCH_WRAPPER_SPEC_BY_NAME.has(normalizeExecutableToken(token));
+  return (
+    gprofngCollectCarrierName(token) !== null ||
+    DISPATCH_WRAPPER_SPEC_BY_NAME.has(normalizeExecutableToken(token))
+  );
 }
 
 export function unwrapKnownDispatchWrapperInvocation(argv: string[]): DispatchWrapperUnwrapResult {
   const token0 = argv[0]?.trim();
   if (!token0) {
     return { kind: "not-wrapper" };
+  }
+  const gprofngCarrier = gprofngCollectCarrierName(token0);
+  if (gprofngCarrier) {
+    return blockDispatchWrapper(gprofngCarrier);
   }
   const wrapper = normalizeExecutableToken(token0);
   const spec = DISPATCH_WRAPPER_SPEC_BY_NAME.get(wrapper);

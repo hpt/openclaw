@@ -18,6 +18,36 @@ describe("resolveExecWrapperTrustPlan", () => {
     });
   });
 
+  test("fails closed for gprofng collect app carriers", () => {
+    expect(
+      resolveExecWrapperTrustPlan(["gprofng", "collect", "app", "/bin/sh", "-c", "id"]),
+    ).toEqual({
+      argv: ["gprofng", "collect", "app", "/bin/sh", "-c", "id"],
+      policyArgv: ["gprofng", "collect", "app", "/bin/sh", "-c", "id"],
+      wrapperChain: [],
+      policyBlocked: true,
+      blockedWrapper: "gprofng",
+      shellWrapperExecutable: false,
+      shellInlineCommand: null,
+    });
+    expect(
+      resolveExecWrapperTrustPlan([
+        "/usr/bin/x86_64-linux-gnu-gp-collect-app",
+        "/bin/sh",
+        "-c",
+        "id",
+      ]),
+    ).toEqual({
+      argv: ["/usr/bin/x86_64-linux-gnu-gp-collect-app", "/bin/sh", "-c", "id"],
+      policyArgv: ["/usr/bin/x86_64-linux-gnu-gp-collect-app", "/bin/sh", "-c", "id"],
+      wrapperChain: [],
+      policyBlocked: true,
+      blockedWrapper: "x86_64-linux-gnu-gp-collect-app",
+      shellWrapperExecutable: false,
+      shellInlineCommand: null,
+    });
+  });
+
   test("fails closed for unsupported shell multiplexer applets", () => {
     expect(resolveExecWrapperTrustPlan(["busybox", "sed", "-n", "1p"])).toEqual({
       argv: ["busybox", "sed", "-n", "1p"],

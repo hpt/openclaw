@@ -570,6 +570,70 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("fails closed for gprofng collect app allow-always", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const driver = makeExecutable(dir, "gprofng");
+    const direct = makeExecutable(dir, "x86_64-linux-gnu-gp-collect-app");
+    const payload = makeExecutable(dir, "payload");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+
+    for (const carrier of [driver, direct]) {
+      const command =
+        carrier === driver
+          ? `${carrier} collect app ${payload} marker`
+          : `${carrier} ${payload} marker`;
+      const { analysis, persisted } = resolvePersistedPatterns({
+        command,
+        dir,
+        env,
+        safeBins,
+      });
+      expect(analysis.analysisOk).toBe(true);
+      expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+      expect(persisted).toEqual([]);
+
+      const second = evaluateShellAllowlist({
+        command,
+        allowlist: [{ pattern: carrier }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("still persists ordinary gprof analysis binaries", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const gprof = makeExecutable(dir, "gprof");
+    const env = makePathEnv(dir);
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: `${gprof} binary gmon.out`,
+      dir,
+      env,
+      safeBins: resolveSafeBins(undefined),
+    });
+    expect(analysis.analysisOk).toBe(true);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(false);
+    expect(persisted).toEqual([gprof]);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [

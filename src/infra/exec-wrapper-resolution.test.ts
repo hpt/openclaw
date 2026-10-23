@@ -143,13 +143,38 @@ describe("unwrapKnownDispatchWrapperInvocation", () => {
     expect(unwrapKnownDispatchWrapperInvocation(argv)).toEqual(expected);
   });
 
-  test.each(["chrt", "doas", "ionice", "setsid", "sudo", "taskset"])(
-    "fails closed for blocked dispatch wrapper %s",
+  test.each([
+    "chrt",
+    "doas",
+    "gp-collect-app",
+    "gprofng",
+    "ionice",
+    "setsid",
+    "sudo",
+    "taskset",
+    "x86_64-linux-gnu-gp-collect-app",
+    "aarch64-linux-gnu-gprofng",
+    "/usr/bin/x86_64-linux-gnu-gp-collect-app",
+  ])("fails closed for blocked dispatch wrapper %s", (wrapper) => {
+    const blockedWrapper =
+      wrapper === "/usr/bin/x86_64-linux-gnu-gp-collect-app"
+        ? "x86_64-linux-gnu-gp-collect-app"
+        : wrapper;
+    expect(
+      unwrapKnownDispatchWrapperInvocation([wrapper, "collect", "app", "/bin/sh", "-c", "id"]),
+    ).toEqual({
+      kind: "blocked",
+      wrapper: blockedWrapper,
+    });
+  });
+
+  test.each(["gprof", "gp-display-text", "gp-archive", "x86_64-linux-gnu-gprof"])(
+    "does not treat %s as a gprofng command carrier",
     (wrapper) => {
-      expect(unwrapKnownDispatchWrapperInvocation([wrapper, "bash", "-lc", "echo hi"])).toEqual({
-        kind: "blocked",
-        wrapper,
+      expect(unwrapKnownDispatchWrapperInvocation([wrapper, "binary", "gmon.out"])).toEqual({
+        kind: "not-wrapper",
       });
+      expect(isDispatchWrapperExecutable(wrapper)).toBe(false);
     },
   );
 });
