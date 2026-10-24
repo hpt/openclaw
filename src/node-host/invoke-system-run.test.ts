@@ -1254,6 +1254,36 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
     });
   });
 
+  it("requires explicit approval for versioned inline eval when strictInlineEval is enabled", async () => {
+    setRuntimeConfigSnapshot({
+      tools: {
+        exec: {
+          strictInlineEval: true,
+        },
+      },
+    });
+    try {
+      const { runCommand, sendInvokeResult, sendNodeEvent } = await runSystemInvoke({
+        preferMacAppExecHost: false,
+        command: ["python3.12", "-Bc", "print('hi')"],
+        security: "full",
+        ask: "off",
+      });
+
+      expect(runCommand).not.toHaveBeenCalled();
+      expect(sendNodeEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        "exec.denied",
+        expect.objectContaining({ reason: "approval-required" }),
+      );
+      expectInvokeErrorMessage(sendInvokeResult, {
+        message: "python3.12 -c requires explicit approval in strictInlineEval mode",
+      });
+    } finally {
+      clearRuntimeConfigSnapshot();
+    }
+  });
+
   it("requires explicit approval for inline eval when strictInlineEval is enabled", async () => {
     setRuntimeConfigSnapshot({
       tools: {
@@ -1278,6 +1308,37 @@ describe("handleSystemRunInvoke mac app exec host routing", () => {
       );
       expectInvokeErrorMessage(sendInvokeResult, {
         message: "python3 -c requires explicit approval in strictInlineEval mode",
+      });
+    } finally {
+      clearRuntimeConfigSnapshot();
+    }
+  });
+
+  it("does not persist allow-always approvals for versioned interpreters", async () => {
+    setRuntimeConfigSnapshot({
+      tools: {
+        exec: {
+          strictInlineEval: true,
+        },
+      },
+    });
+    try {
+      await withTempApprovalsHome({
+        approvals: createAllowlistOnMissApprovals(),
+        run: async () => {
+          const { runCommand, sendInvokeResult } = await runSystemInvoke({
+            preferMacAppExecHost: false,
+            command: ["perl5.38.2", "-ne", "print"],
+            security: "allowlist",
+            ask: "on-miss",
+            approved: true,
+            runCommand: vi.fn(async () => createLocalRunResult("versioned-inline-eval-ok")),
+          });
+
+          expect(runCommand).toHaveBeenCalledTimes(1);
+          expectInvokeOk(sendInvokeResult, { payloadContains: "versioned-inline-eval-ok" });
+          expect(loadExecApprovals().agents?.main?.allowlist ?? []).toEqual([]);
+        },
       });
     } finally {
       clearRuntimeConfigSnapshot();

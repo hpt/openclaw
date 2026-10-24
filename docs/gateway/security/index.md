@@ -536,7 +536,7 @@ Even with strong system prompts, **prompt injection is not solved**. System prom
 - Run sensitive tool execution in a sandbox; keep secrets out of the agent’s reachable filesystem.
 - Note: sandboxing is opt-in. If sandbox mode is off, exec runs on the gateway host even though tools.exec.host defaults to sandbox, and host exec does not require approvals unless you set host=gateway and configure exec approvals.
 - Limit high-risk tools (`exec`, `browser`, `web_fetch`, `web_search`) to trusted agents or explicit allowlists.
-- If you allowlist interpreters (`python`, `node`, `ruby`, `perl`, `php`, `lua`, `osascript`), enable `tools.exec.strictInlineEval` so inline eval forms still need explicit approval.
+- If you allowlist interpreters (`python`, `node`, `ruby`, `perl`, `php`, `lua`, `osascript`, including versioned names such as `python3.12` and `perl5.38.2`), enable `tools.exec.strictInlineEval` so inline eval forms still need explicit approval.
 - **Model choice matters:** older/smaller/legacy models are significantly less robust against prompt injection and tool misuse. For tool-enabled agents, use the strongest latest-generation, instruction-hardened model available.
 
 Red flags to treat as untrusted:
