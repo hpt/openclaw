@@ -113,12 +113,12 @@ When `tools.exec.strictInlineEval=true`, OpenClaw treats inline code-eval forms 
 
 Examples:
 
-- `python -c`
-- `node -e`, `node --eval`, `node -p`
-- `ruby -e`
-- `perl -e`, `perl -E`
-- `php -r`
-- `lua -e`
+- `python -c`, `python3.12 -c`, `python3.12 -Bc`, `python -cCODE`
+- `node -e`, `node --eval`, `node --eval=CODE`, `node20 -e`, `node -p`
+- `ruby -e`, `ruby3.2 -e`
+- `perl -e`, `perl -E`, `perl5.38.2 -ne`, `perl5.38-x86_64-linux-gnu -e`
+- `php -r`, `php8.3 -r`
+- `lua -e`, `lua5.4 -e`
 - `osascript -e`
 
 This is defense-in-depth for interpreter loaders that do not map cleanly to one stable file operand. In strict mode:

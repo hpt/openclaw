@@ -239,7 +239,7 @@ export type ExecToolConfig = {
   /** Safe stdin-only binaries that can run without allowlist entries. */
   safeBins?: string[];
   /**
-   * Require explicit approval for interpreter inline-eval forms (`python -c`, `node -e`, etc.).
+   * Require explicit approval for interpreter inline-eval forms (`python -c`, `python3.12 -c`, `node -e`, etc.).
    * Prevents silent allowlist reuse and allow-always persistence for those forms.
    */
   strictInlineEval?: boolean;
