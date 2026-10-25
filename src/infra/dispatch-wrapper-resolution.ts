@@ -300,6 +300,9 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // XFCE helper. `--launch TerminalEmulator <command>` runs a caller-supplied
+  // command, and the other launch types are not safely parsed.
+  { name: "xfce4-mime-helper" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(

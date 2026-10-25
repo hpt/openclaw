@@ -590,6 +590,46 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("prevents allow-always bypass for xfce4-mime-helper terminal launches", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const helper = makeExecutable(dir, "xfce4-mime-helper");
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = `${helper} --launch TerminalEmulator 'touch warmup-ok'`;
+    const secondCommand = `${helper} --launch TerminalEmulator 'id > marker'`;
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir,
+      env,
+      safeBins,
+    });
+    expect(persisted).toEqual([]);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe("xfce4-mime-helper");
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: helper }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("prevents allow-always bypass for busybox shell applets", () => {
     if (process.platform === "win32") {
       return;
