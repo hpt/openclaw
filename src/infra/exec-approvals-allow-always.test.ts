@@ -570,6 +570,50 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it.each([
+    ["gio", "launch safe.desktop", "launch payload.desktop"],
+    ["open", "safe.desktop", "payload.desktop"],
+    ["xdg-open", "safe.desktop", "payload.desktop"],
+  ])("prevents allow-always bypass for %s desktop launches", (name, firstArgs, secondArgs) => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const helper = makeExecutable(dir, name);
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = `${helper} ${firstArgs}`;
+    const secondCommand = `${helper} ${secondArgs}`;
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir,
+      env,
+      safeBins,
+    });
+    expect(persisted).toEqual([]);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe(name);
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: helper }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
