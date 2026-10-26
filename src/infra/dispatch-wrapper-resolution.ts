@@ -291,15 +291,24 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  // `gio launch <desktop-file>` runs the desktop file's Exec line. The command
+  // is not in argv, and the other gio subcommands are not safely parsed.
+  { name: "gio" },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
+  // xdg-utils `open` is an argv0 alias of xdg-open. macOS `open` also launches
+  // caller-selected apps. Neither form is safely unwrapped.
+  { name: "open" },
   { name: "setsid" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // xdg-open hands the target to a desktop launcher (exo-open, gio, or another
+  // DE helper). A .desktop target's Exec line is not visible in argv.
+  { name: "xdg-open" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
