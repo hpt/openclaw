@@ -79,7 +79,8 @@ enum HostEnvSecurityPolicy {
         "GEM_PATH",
         "BUNDLE_GEMFILE",
         "COMPOSER_HOME",
-        "XDG_CONFIG_HOME"
+        "XDG_CONFIG_HOME",
+        "MAILER"
     ]
 
     static let blockedOverridePrefixes: [String] = [
