@@ -232,6 +232,8 @@ describe("isDangerousHostEnvOverrideVarName", () => {
     expect(isDangerousHostEnvOverrideVarName("coreclr_profiler_path")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("XDG_CONFIG_HOME")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("xdg_config_home")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("MAILER")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("mailer")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("BASH_ENV")).toBe(false);
     expect(isDangerousHostEnvOverrideVarName("FOO")).toBe(false);
   });
@@ -256,6 +258,22 @@ describe("sanitizeHostExecEnvWithDiagnostics", () => {
     expect(result.env.SAFE_KEY).toBe("ok");
     expect(result.env.PATH).toBe("/usr/bin:/bin");
     expect(result.env.CLASSPATH).toBeUndefined();
+  });
+
+  it("rejects MAILER overrides that xdg-email would eval", () => {
+    expect(isDangerousHostEnvVarName("MAILER")).toBe(false);
+    const result = sanitizeHostExecEnvWithDiagnostics({
+      baseEnv: {
+        PATH: "/usr/bin:/bin",
+        MAILER: "thunderbird",
+      },
+      overrides: {
+        MAILER: "/bin/touch /tmp/pwned",
+      },
+    });
+
+    expect(result.rejectedOverrideBlockedKeys).toEqual(["MAILER"]);
+    expect(result.env.MAILER).toBe("thunderbird");
   });
 
   it("allows Windows-style override names while still rejecting invalid keys", () => {

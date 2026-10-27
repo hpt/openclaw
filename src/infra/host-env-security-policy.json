@@ -72,7 +72,8 @@
     "GEM_PATH",
     "BUNDLE_GEMFILE",
     "COMPOSER_HOME",
-    "XDG_CONFIG_HOME"
+    "XDG_CONFIG_HOME",
+    "MAILER"
   ],
   "blockedOverridePrefixes": ["GIT_CONFIG_", "NPM_CONFIG_"],
   "blockedPrefixes": ["DYLD_", "LD_", "BASH_FUNC_"]
