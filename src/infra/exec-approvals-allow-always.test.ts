@@ -570,6 +570,49 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it.each([
+    ["gtester", "/bin/true", "/tmp/payload"],
+    ["prove", "/bin/true", "/tmp/payload.t"],
+  ])("prevents allow-always bypass for %s test runners", (name, firstArg, secondArg) => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const helper = makeExecutable(dir, name);
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const firstCommand = `${helper} ${firstArg}`;
+    const secondCommand = `${helper} ${secondArg}`;
+    const { analysis, persisted } = resolvePersistedPatterns({
+      command: firstCommand,
+      dir,
+      env,
+      safeBins,
+    });
+    expect(persisted).toEqual([]);
+    expect(analysis.segments[0]?.resolution?.policyBlocked).toBe(true);
+    expect(analysis.segments[0]?.resolution?.blockedWrapper).toBe(name);
+
+    const second = evaluateShellAllowlist({
+      command: secondCommand,
+      allowlist: [{ pattern: helper }],
+      safeBins,
+      cwd: dir,
+      env,
+      platform: process.platform,
+    });
+    expect(second.analysisOk).toBe(true);
+    expect(second.allowlistSatisfied).toBe(false);
+    expect(
+      requiresExecApproval({
+        ask: "on-miss",
+        security: "allowlist",
+        analysisOk: second.analysisOk,
+        allowlistSatisfied: second.allowlistSatisfied,
+      }),
+    ).toBe(true);
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [

@@ -291,9 +291,15 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  // `gtester` executes each testprogram argument. There is no unwrap parser,
+  // so allow-always must not persist the harness path.
+  { name: "gtester" },
   { name: "ionice" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
+  // `prove` executes caller-supplied test scripts. There is no unwrap parser,
+  // so allow-always must not persist the harness path.
+  { name: "prove" },
   { name: "setsid" },
   { name: "stdbuf", unwrap: unwrapStdbufInvocation, transparentUsage: true },
   { name: "sudo" },
