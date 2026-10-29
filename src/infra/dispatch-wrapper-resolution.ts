@@ -284,6 +284,9 @@ type DispatchWrapperSpec = {
 };
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
+  // Debian `browse` is an argv0 alias of xdg-open. A .desktop target's Exec
+  // line is not in argv, so allow-always must not persist this path.
+  { name: "browse" },
   { name: "chrt" },
   { name: "doas" },
   {
@@ -291,7 +294,13 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
     unwrap: unwrapEnvInvocation,
     transparentUsage: (argv) => !envInvocationUsesModifiers(argv),
   },
+  // fstab-decode decodes octal escapes, then execs the remaining command.
+  // There is no unwrap parser, so allow-always must not persist this path.
+  { name: "fstab-decode" },
   { name: "ionice" },
+  // logsave runs a caller-supplied program and records its output.
+  // There is no unwrap parser, so allow-always must not persist this path.
+  { name: "logsave" },
   { name: "nice", unwrap: unwrapNiceInvocation, transparentUsage: true },
   { name: "nohup", unwrap: unwrapNohupInvocation, transparentUsage: true },
   { name: "setsid" },

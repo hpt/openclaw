@@ -570,6 +570,63 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
+  it("fails closed for command carriers whose payload is not in argv", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const dir = makeTempDir();
+    const env = makePathEnv(dir);
+    const safeBins = resolveSafeBins(undefined);
+    const commands = [
+      "/usr/sbin/logsave /tmp/logsave.out /bin/true",
+      "/usr/sbin/fstab-decode /bin/true",
+      "/usr/bin/browse /tmp/launch.desktop",
+    ];
+    for (const command of commands) {
+      const first = evaluateShellAllowlist({
+        command,
+        allowlist: [],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(first.analysisOk).toBe(true);
+      expect(first.segments[0]?.resolution?.policyBlocked).toBe(true);
+      expect(first.allowlistSatisfied).toBe(false);
+      expect(
+        resolveAllowAlwaysPatterns({
+          segments: first.segments,
+          cwd: dir,
+          env,
+          platform: process.platform,
+        }),
+      ).toEqual([]);
+
+      const carrierPath =
+        first.segments[0]?.resolution?.policy.resolvedPath ??
+        first.segments[0]?.resolution?.execution.resolvedPath ??
+        command.split(" ")[0];
+      const second = evaluateShellAllowlist({
+        command,
+        allowlist: [{ pattern: carrierPath }],
+        safeBins,
+        cwd: dir,
+        env,
+        platform: process.platform,
+      });
+      expect(second.allowlistSatisfied).toBe(false);
+      expect(
+        requiresExecApproval({
+          ask: "on-miss",
+          security: "allowlist",
+          analysisOk: second.analysisOk,
+          allowlistSatisfied: second.allowlistSatisfied,
+        }),
+      ).toBe(true);
+    }
+  });
+
   it("fails closed for unresolved dispatch wrappers", () => {
     const patterns = resolveAllowAlwaysPatterns({
       segments: [
