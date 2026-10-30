@@ -300,6 +300,12 @@ const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "taskset" },
   { name: "time", unwrap: unwrapTimeInvocation, transparentUsage: true },
   { name: "timeout", unwrap: unwrapTimeoutInvocation, transparentUsage: true },
+  // varlinkctl execs an executable ADDRESS when it is not an AF_UNIX socket.
+  // That program is not a parsed inner command, so allow-always must not persist this path.
+  { name: "varlinkctl" },
+  // xdotool exec runs a caller-supplied command. There is no unwrap parser,
+  // so allow-always must not persist this path.
+  { name: "xdotool" },
 ];
 
 const DISPATCH_WRAPPER_SPEC_BY_NAME = new Map(
