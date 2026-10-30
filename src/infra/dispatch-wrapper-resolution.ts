@@ -285,6 +285,9 @@ type DispatchWrapperSpec = {
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "chrt" },
+  // debconf-apt-progress execs the caller-supplied command. There is no unwrap
+  // parser, so allow-always must not persist this path.
+  { name: "debconf-apt-progress" },
   { name: "doas" },
   {
     name: "env",

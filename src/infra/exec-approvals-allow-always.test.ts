@@ -570,14 +570,18 @@ $0 \\"$1\\"" touch ${marker}`,
     expect(patterns).toEqual([]);
   });
 
-  it("fails closed for xdotool and varlinkctl command carriers", () => {
+  it("fails closed for xdotool, varlinkctl, and debconf-apt-progress command carriers", () => {
     if (process.platform === "win32") {
       return;
     }
     const dir = makeTempDir();
     const env = makePathEnv(dir);
     const safeBins = resolveSafeBins(undefined);
-    const commands = ["/usr/bin/xdotool exec /bin/true", "/usr/bin/varlinkctl info /bin/true"];
+    const commands = [
+      "/usr/bin/xdotool exec /bin/true",
+      "/usr/bin/varlinkctl info /bin/true",
+      "/usr/bin/debconf-apt-progress /bin/true",
+    ];
     for (const command of commands) {
       const first = evaluateShellAllowlist({
         command,
