@@ -285,6 +285,9 @@ type DispatchWrapperSpec = {
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
   { name: "chrt" },
+  // debconf runs a caller-supplied program (`debconf [options] command`).
+  // There is no unwrap parser, so allow-always must not persist this path.
+  { name: "debconf" },
   { name: "doas" },
   {
     name: "env",
