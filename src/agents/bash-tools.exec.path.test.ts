@@ -178,6 +178,22 @@ describe("exec PATH login shell merge", () => {
     );
   });
 
+  it("fails closed when a compression helper program override is requested", async () => {
+    if (isWin) {
+      return;
+    }
+    const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
+
+    await expect(
+      tool.execute("call-blocked-grep-env", {
+        command: "xzgrep needle /tmp/plain.txt",
+        env: { GREP: "touch /tmp/pwned" },
+      }),
+    ).rejects.toThrow(
+      /Security Violation: Environment variable 'GREP' is forbidden during host execution\./,
+    );
+  });
+
   it("does not apply login-shell PATH when probe rejects unregistered absolute SHELL", async () => {
     if (isWin) {
       return;

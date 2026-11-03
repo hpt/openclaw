@@ -142,6 +142,31 @@ describe("sanitizeHostExecEnv", () => {
     expect(env.ZDOTDIR).toBe("/tmp/trusted-zdotdir");
   });
 
+  it("rejects compression-helper program overrides and preserves inherited values", () => {
+    const env = sanitizeHostExecEnv({
+      baseEnv: {
+        PATH: "/usr/bin:/bin",
+        GREP: "/usr/bin/grep",
+        DIFF: "/usr/bin/diff",
+      },
+      overrides: {
+        GREP: "touch /tmp/pwned",
+        EGREP: "touch /tmp/pwned",
+        FGREP: "touch /tmp/pwned",
+        DIFF: "touch /tmp/pwned",
+        CMP: "touch /tmp/pwned",
+        SAFE: "ok",
+      },
+    });
+
+    expect(env.GREP).toBe("/usr/bin/grep");
+    expect(env.DIFF).toBe("/usr/bin/diff");
+    expect(env.EGREP).toBeUndefined();
+    expect(env.FGREP).toBeUndefined();
+    expect(env.CMP).toBeUndefined();
+    expect(env.SAFE).toBe("ok");
+  });
+
   it("drops dangerous inherited shell trace keys", () => {
     const env = sanitizeHostExecEnv({
       baseEnv: {
@@ -232,6 +257,11 @@ describe("isDangerousHostEnvOverrideVarName", () => {
     expect(isDangerousHostEnvOverrideVarName("coreclr_profiler_path")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("XDG_CONFIG_HOME")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("xdg_config_home")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("GREP")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("egrep")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("FGREP")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("diff")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("CMP")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("BASH_ENV")).toBe(false);
     expect(isDangerousHostEnvOverrideVarName("FOO")).toBe(false);
   });
