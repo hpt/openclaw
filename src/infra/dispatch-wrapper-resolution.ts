@@ -284,6 +284,13 @@ type DispatchWrapperSpec = {
 };
 
 const DISPATCH_WRAPPER_SPECS: readonly DispatchWrapperSpec[] = [
+  // apt and apt-get run a caller-supplied shell command from config hooks such as
+  // APT::Update::Pre-Invoke (`-o` or APT_CONFIG). apt-key execs the program named by
+  // GPG_EXE / APT::Key::gpgcommand. There is no unwrap parser, so allow-always must
+  // not persist these paths.
+  { name: "apt" },
+  { name: "apt-get" },
+  { name: "apt-key" },
   { name: "chrt" },
   { name: "doas" },
   {
