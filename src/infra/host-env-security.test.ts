@@ -102,11 +102,15 @@ describe("sanitizeHostExecEnv", () => {
         PATH: "/usr/bin:/bin",
         HOME: "/tmp/trusted-home",
         ZDOTDIR: "/tmp/trusted-zdotdir",
+        GET_ID: "cat /dev/null",
+        AWK: "/usr/bin/awk",
       },
       overrides: {
         PATH: "/tmp/evil",
         HOME: "/tmp/evil-home",
         ZDOTDIR: "/tmp/evil-zdotdir",
+        GET_ID: "touch /tmp/pwned",
+        AWK: "/tmp/evil-awk",
         BASH_ENV: "/tmp/pwn.sh",
         GIT_SSH_COMMAND: "touch /tmp/pwned",
         GIT_EXEC_PATH: "/tmp/git-exec-path",
@@ -140,6 +144,8 @@ describe("sanitizeHostExecEnv", () => {
     expect(env.SAFE).toBe("ok");
     expect(env.HOME).toBe("/tmp/trusted-home");
     expect(env.ZDOTDIR).toBe("/tmp/trusted-zdotdir");
+    expect(env.GET_ID).toBe("cat /dev/null");
+    expect(env.AWK).toBe("/usr/bin/awk");
   });
 
   it("drops dangerous inherited shell trace keys", () => {
@@ -232,6 +238,10 @@ describe("isDangerousHostEnvOverrideVarName", () => {
     expect(isDangerousHostEnvOverrideVarName("coreclr_profiler_path")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("XDG_CONFIG_HOME")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("xdg_config_home")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("GET_ID")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("get_id")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("AWK")).toBe(true);
+    expect(isDangerousHostEnvOverrideVarName("awk")).toBe(true);
     expect(isDangerousHostEnvOverrideVarName("BASH_ENV")).toBe(false);
     expect(isDangerousHostEnvOverrideVarName("FOO")).toBe(false);
   });
@@ -462,5 +472,120 @@ describe("git env exploit regression", () => {
     await runGitLsRemote(gitPath, target, safeEnv);
 
     expect(fs.existsSync(marker)).toBe(false);
+  });
+});
+
+describe("ssh-copy-id GET_ID override regression", () => {
+  function getSshCopyIdPath() {
+    if (process.platform === "win32") {
+      return null;
+    }
+    const sshCopyIdPath = "/usr/bin/ssh-copy-id";
+    return fs.existsSync(sshCopyIdPath) ? sshCopyIdPath : null;
+  }
+
+  async function runSshCopyId(sshCopyIdPath: string, env: NodeJS.ProcessEnv) {
+    await new Promise<void>((resolve) => {
+      const child = spawn(sshCopyIdPath, ["-n", "example.invalid"], { env, stdio: "ignore" });
+      child.once("error", () => resolve());
+      child.once("close", () => resolve());
+    });
+  }
+
+  it("blocks GET_ID overrides so ssh-copy-id cannot eval a caller command", async () => {
+    const sshCopyIdPath = getSshCopyIdPath();
+    if (!sshCopyIdPath) {
+      return;
+    }
+
+    const marker = path.join(
+      os.tmpdir(),
+      `openclaw-ssh-copy-id-get-id-${process.pid}-${Date.now()}`,
+    );
+    clearMarker(marker);
+
+    const baseEnv = {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+    };
+    const exploitValue = `touch ${JSON.stringify(marker)}`;
+    try {
+      await runSshCopyId(sshCopyIdPath, {
+        ...baseEnv,
+        GET_ID: exploitValue,
+      });
+      expect(fs.existsSync(marker)).toBe(true);
+      clearMarker(marker);
+
+      const safeEnv = sanitizeHostExecEnv({
+        baseEnv,
+        overrides: {
+          GET_ID: exploitValue,
+        },
+      });
+      expect(safeEnv.GET_ID).toBeUndefined();
+
+      await runSshCopyId(sshCopyIdPath, safeEnv);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      clearMarker(marker);
+    }
+  });
+});
+
+describe("tzselect AWK override regression", () => {
+  function getTzselectPath() {
+    if (process.platform === "win32") {
+      return null;
+    }
+    const tzselectPath = "/usr/bin/tzselect";
+    return fs.existsSync(tzselectPath) ? tzselectPath : null;
+  }
+
+  async function runTzselect(tzselectPath: string, env: NodeJS.ProcessEnv) {
+    await new Promise<void>((resolve) => {
+      const child = spawn(tzselectPath, [], { env, stdio: "ignore" });
+      child.once("error", () => resolve());
+      child.once("close", () => resolve());
+    });
+  }
+
+  it("blocks AWK overrides so tzselect cannot execute a caller program", async () => {
+    const tzselectPath = getTzselectPath();
+    if (!tzselectPath) {
+      return;
+    }
+
+    const helperDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), `openclaw-tzselect-awk-${process.pid}-${Date.now()}-`),
+    );
+    const helperPath = path.join(helperDir, "fake-awk");
+    const marker = path.join(helperDir, "marker");
+    try {
+      fs.writeFileSync(helperPath, `#!/bin/sh\ntouch ${JSON.stringify(marker)}\nexit 1\n`, "utf8");
+      fs.chmodSync(helperPath, 0o755);
+      const baseEnv = {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+      };
+
+      await runTzselect(tzselectPath, {
+        ...baseEnv,
+        AWK: helperPath,
+      });
+      expect(fs.existsSync(marker)).toBe(true);
+      clearMarker(marker);
+
+      const safeEnv = sanitizeHostExecEnv({
+        baseEnv,
+        overrides: {
+          AWK: helperPath,
+        },
+      });
+      expect(safeEnv.AWK).toBeUndefined();
+
+      await runTzselect(tzselectPath, safeEnv);
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      fs.rmSync(helperDir, { recursive: true, force: true });
+    }
   });
 });

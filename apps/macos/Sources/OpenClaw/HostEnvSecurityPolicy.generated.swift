@@ -46,6 +46,8 @@ enum HostEnvSecurityPolicy {
         "GIT_PROXY_COMMAND",
         "GIT_ASKPASS",
         "SSH_ASKPASS",
+        "GET_ID",
+        "AWK",
         "LESSOPEN",
         "LESSCLOSE",
         "PAGER",

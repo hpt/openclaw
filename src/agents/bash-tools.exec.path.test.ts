@@ -178,6 +178,38 @@ describe("exec PATH login shell merge", () => {
     );
   });
 
+  it("fails closed when ssh-copy-id GET_ID override is requested", async () => {
+    if (isWin) {
+      return;
+    }
+    const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
+
+    await expect(
+      tool.execute("call-blocked-get-id", {
+        command: "ssh-copy-id -n example.invalid",
+        env: { GET_ID: "touch /tmp/openclaw-get-id" },
+      }),
+    ).rejects.toThrow(
+      /Security Violation: Environment variable 'GET_ID' is forbidden during host execution\./,
+    );
+  });
+
+  it("fails closed when tzselect AWK override is requested", async () => {
+    if (isWin) {
+      return;
+    }
+    const tool = createExecTool({ host: "gateway", security: "full", ask: "off" });
+
+    await expect(
+      tool.execute("call-blocked-awk", {
+        command: "tzselect",
+        env: { AWK: "/tmp/openclaw-fake-awk" },
+      }),
+    ).rejects.toThrow(
+      /Security Violation: Environment variable 'AWK' is forbidden during host execution\./,
+    );
+  });
+
   it("does not apply login-shell PATH when probe rejects unregistered absolute SHELL", async () => {
     if (isWin) {
       return;
