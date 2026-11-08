@@ -44,6 +44,7 @@ import {
   resolveMSTeamsRouteConfig,
 } from "../policy.js";
 import { extractMSTeamsPollVote } from "../polls.js";
+import { buildMSTeamsSenderTimezoneConfigOverride } from "../reply-config-override.js";
 import { createMSTeamsReplyDispatcher } from "../reply-dispatcher.js";
 import { getMSTeamsRuntime } from "../runtime.js";
 import type { MSTeamsTurnContext } from "../sdk-types.js";
@@ -582,19 +583,14 @@ export function createMSTeamsMessageHandler(deps: MSTeamsMessageHandlerDeps) {
       sharePointSiteId,
     });
 
-    // Use Teams clientInfo timezone if no explicit userTimezone is configured.
-    // This ensures the agent knows the sender's timezone for time-aware responses
-    // and proactive sends within the same session.
-    // Apply Teams clientInfo timezone if no explicit userTimezone is configured.
+    // Apply the sender timezone only when the live config has none. Read the
+    // live snapshot here: this monitor keeps the config it started with, and
+    // agent-default reloads do not restart the channel.
     const senderTimezone = clientInfo?.timezone || conversationRef.timezone;
-    const configOverride =
-      senderTimezone && !cfg.agents?.defaults?.userTimezone
-        ? {
-            agents: {
-              defaults: { ...cfg.agents?.defaults, userTimezone: senderTimezone },
-            },
-          }
-        : undefined;
+    const configOverride = buildMSTeamsSenderTimezoneConfigOverride({
+      cfg: core.config.loadConfig(),
+      senderTimezone,
+    });
 
     log.info("dispatching to agent", { sessionKey: route.sessionKey });
     try {
