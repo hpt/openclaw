@@ -19,6 +19,7 @@ import {
   createOpenAIWebSocketStreamFn,
   hasWsSession,
   releaseWsSession,
+  resolveWsContinuationInput,
 } from "./openai-ws-stream.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1017,6 +1018,85 @@ describe("createOpenAIWebSocketStreamFn", () => {
     const inputTypes = (sent2.input ?? []).map((i) => i.type);
     expect(inputTypes.every((t) => t === "function_call_output")).toBe(true);
     expect(inputTypes).toHaveLength(1);
+  });
+
+  it("continues a user follow-up with only the new user message", async () => {
+    const sessionId = "sess-user-follow-up";
+    const streamFn = createOpenAIWebSocketStreamFn("sk-test", sessionId);
+
+    const ctx1 = {
+      systemPrompt: "You are helpful.",
+      messages: [userMsg("Hello")] as Parameters<typeof convertMessagesToInputItems>[0],
+      tools: [],
+    };
+    const stream1 = streamFn(
+      modelStub as Parameters<typeof streamFn>[0],
+      ctx1 as Parameters<typeof streamFn>[1],
+    );
+    const done1 = (async () => {
+      for await (const _ev of await resolveStream(stream1)) {
+        // consume
+      }
+    })();
+    await new Promise((r) => setImmediate(r));
+    const manager = MockManager.lastInstance!;
+    manager.setPreviousResponseId("resp_turn1");
+    manager.simulateEvent({
+      type: "response.completed",
+      response: makeResponseObject("resp_turn1", "Hi there."),
+    });
+    await done1;
+
+    const ctx2 = {
+      systemPrompt: "You are helpful.",
+      messages: [
+        userMsg("Hello"),
+        assistantMsg(["Hi there."]),
+        userMsg("What did I just say?"),
+      ] as Parameters<typeof convertMessagesToInputItems>[0],
+      tools: [],
+    };
+    const stream2 = streamFn(
+      modelStub as Parameters<typeof streamFn>[0],
+      ctx2 as Parameters<typeof streamFn>[1],
+    );
+    const done2 = (async () => {
+      for await (const _ev of await resolveStream(stream2)) {
+        // consume
+      }
+    })();
+    await new Promise((r) => setImmediate(r));
+    manager.simulateEvent({
+      type: "response.completed",
+      response: makeResponseObject("resp_turn2", "You said hello."),
+    });
+    await done2;
+
+    expect(manager.sentEvents).toHaveLength(2);
+    const sent2 = manager.sentEvents[1] as {
+      previous_response_id?: string;
+      input: Array<{ type?: string; role?: string; content?: unknown }>;
+    };
+    expect(sent2.previous_response_id).toBe("resp_turn1");
+    expect(sent2.input).toEqual([
+      expect.objectContaining({
+        type: "message",
+        role: "user",
+        content: "What did I just say?",
+      }),
+    ]);
+  });
+
+  it("starts a new chain when the transcript is shorter than the cached turn", () => {
+    const continuation = resolveWsContinuationInput({
+      messages: [userMsg("compacted")] as Parameters<typeof convertMessagesToInputItems>[0],
+      lastContextLength: 4,
+      previousResponseId: "resp_old",
+    });
+    expect(continuation.previousResponseId).toBeUndefined();
+    expect(continuation.inputItems).toEqual([
+      expect.objectContaining({ role: "user", content: "compacted" }),
+    ]);
   });
 
   it("sends instructions (system prompt) in each request", async () => {

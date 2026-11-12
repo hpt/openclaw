@@ -6,7 +6,7 @@
  *
  * Key behaviours:
  *  - Per-session `OpenAIWebSocketManager` (keyed by sessionId)
- *  - Tracks `previous_response_id` to send only incremental tool-result inputs
+ *  - Tracks `previous_response_id` to send only new user and tool-result inputs
  *  - Falls back to `streamSimple` (HTTP) if the WebSocket connection fails
  *  - Cleanup helpers for releasing sessions after the run completes
  *
@@ -527,6 +527,49 @@ export function convertMessagesToInputItems(
   return items;
 }
 
+/**
+ * Choose the next WebSocket `input` and whether it continues the cached response.
+ *
+ * Continuations must send only new user messages and tool results. Replaying the
+ * full transcript with `previous_response_id` appends that history onto the
+ * cached response. A shorter or rewritten transcript starts a new chain.
+ * A primed id with no prior transcript send (warm-up) still chains the first window.
+ */
+export function resolveWsContinuationInput(params: {
+  messages: Message[];
+  lastContextLength: number;
+  previousResponseId: string | null;
+  model?: ReplayModelInfo;
+}): { inputItems: InputItem[]; previousResponseId?: string } {
+  const fullInput = () => ({
+    inputItems: convertMessagesToInputItems(params.messages, params.model),
+  });
+  if (!params.previousResponseId) {
+    return fullInput();
+  }
+  if (params.lastContextLength <= 0) {
+    return {
+      inputItems: convertMessagesToInputItems(params.messages, params.model),
+      previousResponseId: params.previousResponseId,
+    };
+  }
+  if (params.lastContextLength > params.messages.length) {
+    return fullInput();
+  }
+  const deltaMessages = params.messages.slice(params.lastContextLength).filter((message) => {
+    const role = (message as AnyMessage).role;
+    return role === "user" || role === "toolResult";
+  });
+  const deltaItems = convertMessagesToInputItems(deltaMessages, params.model);
+  if (deltaItems.length === 0) {
+    return fullInput();
+  }
+  return {
+    inputItems: deltaItems,
+    previousResponseId: params.previousResponseId,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Response object → AssistantMessage
 // ─────────────────────────────────────────────────────────────────────────────
@@ -682,7 +725,7 @@ async function runWarmUp(params: {
 /**
  * Creates a `StreamFn` backed by a persistent WebSocket connection to the
  * OpenAI Responses API.  The first call for a given `sessionId` opens the
- * connection; subsequent calls reuse it, sending only incremental tool-result
+ * connection; subsequent calls reuse it, sending only new user and tool-result
  * inputs with `previous_response_id`.
  *
  * If the WebSocket connection is unavailable, the function falls back to the
@@ -811,33 +854,19 @@ export function createOpenAIWebSocketStreamFn(
       }
 
       // ── 3. Compute incremental vs full input ─────────────────────────────
-      const prevResponseId = session.manager.previousResponseId;
-      let inputItems: InputItem[];
-
-      if (prevResponseId && session.lastContextLength > 0) {
-        // Subsequent turn: only send new messages (tool results) since last call
-        const newMessages = context.messages.slice(session.lastContextLength);
-        // Filter to only tool results — the assistant message is already in server context
-        const toolResults = newMessages.filter((m) => (m as AnyMessage).role === "toolResult");
-        if (toolResults.length === 0) {
-          // Shouldn't happen in a well-formed turn, but fall back to full context
-          log.debug(
-            `[ws-stream] session=${sessionId}: no new tool results found; sending full context`,
-          );
-          inputItems = buildFullInput(context, model);
-        } else {
-          inputItems = convertMessagesToInputItems(toolResults, model);
-        }
-        log.debug(
-          `[ws-stream] session=${sessionId}: incremental send (${inputItems.length} tool results) previous_response_id=${prevResponseId}`,
-        );
-      } else {
-        // First turn: send full context
-        inputItems = buildFullInput(context, model);
-        log.debug(
-          `[ws-stream] session=${sessionId}: full context send (${inputItems.length} items)`,
-        );
-      }
+      const continuation = resolveWsContinuationInput({
+        messages: context.messages,
+        lastContextLength: session.lastContextLength,
+        previousResponseId: session.manager.previousResponseId,
+        model,
+      });
+      const inputItems = continuation.inputItems;
+      const chainedResponseId = continuation.previousResponseId;
+      log.debug(
+        chainedResponseId
+          ? `[ws-stream] session=${sessionId}: incremental send (${inputItems.length} items) previous_response_id=${chainedResponseId}`
+          : `[ws-stream] session=${sessionId}: full context send (${inputItems.length} items)`,
+      );
 
       // ── 4. Build & send response.create ──────────────────────────────────
       const tools = convertTools(context.tools);
@@ -888,7 +917,7 @@ export function createOpenAIWebSocketStreamFn(
         input: inputItems,
         instructions: context.systemPrompt ?? undefined,
         tools: tools.length > 0 ? tools : undefined,
-        ...(prevResponseId ? { previous_response_id: prevResponseId } : {}),
+        ...(chainedResponseId ? { previous_response_id: chainedResponseId } : {}),
         ...extraParams,
       };
       const nextPayload = options?.onPayload?.(payload, model);
@@ -1018,11 +1047,6 @@ export function createOpenAIWebSocketStreamFn(
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Build full input items from context (system prompt is passed via `instructions` field). */
-function buildFullInput(context: Context, model: ReplayModelInfo): InputItem[] {
-  return convertMessagesToInputItems(context.messages, model);
-}
 
 /**
  * Fall back to HTTP (`streamSimple`) and pipe events into the existing stream.
