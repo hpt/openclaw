@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { slackPlugin } from "../../../extensions/slack/src/channel.js";
+import { telegramPlugin } from "../../../extensions/telegram/src/channel.js";
 import type { SubagentRunRecord } from "../../agents/subagent-registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { formatDurationCompact } from "../../infra/format-time/format-duration.js";
@@ -173,6 +174,30 @@ describe("buildThreadingToolContext", () => {
 
     expect(result.currentChannelId).toBe("C1");
     expect(result.currentThreadTs).toBe("123.456");
+  });
+
+  it("keeps Telegram topic ids in tool context when the plugin registry is active", () => {
+    setActivePluginRegistry(
+      createTestRegistry([{ pluginId: "telegram", plugin: telegramPlugin, source: "test" }]),
+    );
+    const sessionCtx = {
+      Provider: "telegram",
+      To: "slash:8460800771",
+      OriginatingChannel: "telegram",
+      OriginatingTo: "telegram:-1003841603622",
+      MessageThreadId: 928,
+      MessageSid: "2284",
+    } as TemplateContext;
+
+    const result = buildThreadingToolContext({
+      sessionCtx,
+      config: { channels: { telegram: { allowFrom: ["*"] } } } as OpenClawConfig,
+      hasRepliedRef: undefined,
+    });
+
+    expect(result.currentChannelId).toBe("telegram:-1003841603622");
+    expect(result.currentThreadTs).toBe("928");
+    expect(result.currentMessageId).toBe("2284");
   });
 });
 

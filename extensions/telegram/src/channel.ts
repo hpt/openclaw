@@ -686,6 +686,17 @@ export const telegramPlugin = createChatChannelPlugin({
   },
   threading: {
     topLevelReplyToMode: "telegram",
+    // Telegram has no separate thread channel id. Topic sends need message_thread_id,
+    // so the message tool must see the inbound topic even when the agent omits threadId.
+    buildToolContext: ({ context, hasRepliedRef }) => {
+      const threadId =
+        context.MessageThreadId != null ? String(context.MessageThreadId).trim() : "";
+      return {
+        currentChannelId: context.To?.trim() || undefined,
+        currentThreadTs: threadId || undefined,
+        hasRepliedRef,
+      };
+    },
     resolveAutoThreadId: ({ to, toolContext, replyToId }) =>
       replyToId ? undefined : resolveTelegramAutoThreadId({ to, toolContext }),
   },
