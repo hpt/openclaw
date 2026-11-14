@@ -1,5 +1,20 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrateTelegramGroupConfig, migrateTelegramGroupsInPlace } from "./group-migration.js";
+import {
+  clearConfigCache,
+  clearRuntimeConfigSnapshot,
+  loadConfig,
+  setRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshotRefreshHandler,
+} from "../../../src/config/config.js";
+import { withTempHome } from "../../../src/config/home-env.test-harness.js";
+import type { OpenClawConfig } from "../../../src/config/types.js";
+import {
+  migrateTelegramGroupConfig,
+  migrateTelegramGroupsInPlace,
+  persistTelegramGroupMigration,
+} from "./group-migration.js";
 
 function createTelegramGlobalGroupConfig(groups: Record<string, Record<string, unknown>>) {
   return {
@@ -102,6 +117,51 @@ describe("migrateTelegramGroupConfig", () => {
     expect(cfg.channels.telegram.groups).toEqual({
       "-123": { requireMention: true },
       "-100123": { requireMention: false },
+    });
+  });
+
+  it("persists a group id move without mutating the live runtime snapshot", async () => {
+    await withTempHome("openclaw-telegram-group-migration-", async (home) => {
+      const sourceConfig = {
+        channels: {
+          telegram: {
+            groups: {
+              "-1001": { requireMention: false },
+            },
+          },
+        },
+      } as OpenClawConfig;
+      const runtimeConfig = structuredClone(sourceConfig);
+      const configPath = path.join(home, ".openclaw", "openclaw.json");
+      await fs.writeFile(configPath, `${JSON.stringify(sourceConfig, null, 2)}\n`, "utf8");
+      setRuntimeConfigSnapshotRefreshHandler(null);
+      setRuntimeConfigSnapshot(runtimeConfig, structuredClone(sourceConfig));
+      try {
+        const result = await persistTelegramGroupMigration({
+          cfg: loadConfig(),
+          accountId: "default",
+          oldChatId: "-1001",
+          newChatId: "-1002",
+        });
+
+        expect(result.migrated).toBe(true);
+        expect(runtimeConfig.channels?.telegram?.groups).toEqual({
+          "-1001": { requireMention: false },
+        });
+        const persisted = JSON.parse(await fs.readFile(configPath, "utf8")) as {
+          channels?: { telegram?: { groups?: Record<string, { requireMention?: boolean }> } };
+        };
+        expect(persisted.channels?.telegram?.groups).toEqual({
+          "-1002": { requireMention: false },
+        });
+        expect(loadConfig().channels?.telegram?.groups).toEqual({
+          "-1002": { requireMention: false },
+        });
+      } finally {
+        setRuntimeConfigSnapshotRefreshHandler(null);
+        clearRuntimeConfigSnapshot();
+        clearConfigCache();
+      }
     });
   });
 

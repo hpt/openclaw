@@ -13,7 +13,6 @@ import {
   formatModelsAvailableHeader,
   resolveStoredModelOverride,
 } from "openclaw/plugin-sdk/command-auth";
-import { writeConfigFile } from "openclaw/plugin-sdk/config-runtime";
 import {
   loadSessionStore,
   resolveSessionStoreEntry,
@@ -82,7 +81,7 @@ import {
   evaluateTelegramGroupBaseAccess,
   evaluateTelegramGroupPolicyAccess,
 } from "./group-access.js";
-import { migrateTelegramGroupConfig } from "./group-migration.js";
+import { migrateTelegramGroupConfig, persistTelegramGroupMigration } from "./group-migration.js";
 import { resolveTelegramInlineButtonsScope } from "./inline-buttons.js";
 import {
   buildModelsKeyboard,
@@ -1593,10 +1592,12 @@ export const registerTelegramHandlers = ({
         return;
       }
 
-      // Check if old chat ID has config and migrate it
-      const currentConfig = telegramDeps.loadConfig();
-      const migration = migrateTelegramGroupConfig({
-        cfg: currentConfig,
+      // Check if old chat ID has config and migrate it.
+      // Clone inside persistTelegramGroupMigration before writing. The startup
+      // config object is updated only after that write so requireMention and
+      // other captured-config paths follow the new id without emptying the patch.
+      const migration = await persistTelegramGroupMigration({
+        cfg: telegramDeps.loadConfig(),
         accountId,
         oldChatId,
         newChatId,
@@ -1605,7 +1606,6 @@ export const registerTelegramHandlers = ({
       if (migration.migrated) {
         runtime.log?.(warn(`[telegram] Migrating group config from ${oldChatId} to ${newChatId}`));
         migrateTelegramGroupConfig({ cfg, accountId, oldChatId, newChatId });
-        await writeConfigFile(currentConfig);
         runtime.log?.(warn(`[telegram] Group config migrated and saved successfully`));
       } else if (migration.skippedExisting) {
         runtime.log?.(
