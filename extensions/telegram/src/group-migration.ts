@@ -1,5 +1,8 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import type { TelegramGroupConfig } from "openclaw/plugin-sdk/config-runtime";
+import {
+  writeConfigFile,
+  type OpenClawConfig,
+  type TelegramGroupConfig,
+} from "openclaw/plugin-sdk/config-runtime";
 import { normalizeAccountId } from "openclaw/plugin-sdk/routing";
 
 type TelegramGroups = Record<string, TelegramGroupConfig>;
@@ -86,4 +89,30 @@ export function migrateTelegramGroupConfig(params: {
   }
 
   return { migrated, skippedExisting, scopes };
+}
+
+/**
+ * Persist a Telegram group id move.
+ *
+ * `loadConfig()` returns the live runtime snapshot. `writeConfigFile` diffs that
+ * snapshot against the object it receives, so mutating the snapshot in place
+ * produces an empty patch and the following refresh restores the old chat id.
+ */
+export async function persistTelegramGroupMigration(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  oldChatId: string;
+  newChatId: string;
+}): Promise<TelegramGroupMigrationResult> {
+  const nextConfig = structuredClone(params.cfg);
+  const migration = migrateTelegramGroupConfig({
+    cfg: nextConfig,
+    accountId: params.accountId,
+    oldChatId: params.oldChatId,
+    newChatId: params.newChatId,
+  });
+  if (migration.migrated) {
+    await writeConfigFile(nextConfig);
+  }
+  return migration;
 }

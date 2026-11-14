@@ -1,5 +1,20 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrateSlackChannelConfig, migrateSlackChannelsInPlace } from "./channel-migration.js";
+import {
+  clearConfigCache,
+  clearRuntimeConfigSnapshot,
+  loadConfig,
+  setRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshotRefreshHandler,
+} from "../../../src/config/config.js";
+import { withTempHome } from "../../../src/config/home-env.test-harness.js";
+import type { OpenClawConfig } from "../../../src/config/types.js";
+import {
+  migrateSlackChannelConfig,
+  migrateSlackChannelsInPlace,
+  persistSlackChannelMigration,
+} from "./channel-migration.js";
 
 function createSlackGlobalChannelConfig(channels: Record<string, Record<string, unknown>>) {
   return {
@@ -102,6 +117,51 @@ describe("migrateSlackChannelConfig", () => {
     expect(cfg.channels.slack.channels).toEqual({
       C123: { requireMention: true },
       C999: { requireMention: false },
+    });
+  });
+
+  it("persists a channel id move without mutating the live runtime snapshot", async () => {
+    await withTempHome("openclaw-slack-channel-migration-", async (home) => {
+      const sourceConfig = {
+        channels: {
+          slack: {
+            channels: {
+              C123: { requireMention: false },
+            },
+          },
+        },
+      } as OpenClawConfig;
+      const runtimeConfig = structuredClone(sourceConfig);
+      const configPath = path.join(home, ".openclaw", "openclaw.json");
+      await fs.writeFile(configPath, `${JSON.stringify(sourceConfig, null, 2)}\n`, "utf8");
+      setRuntimeConfigSnapshotRefreshHandler(null);
+      setRuntimeConfigSnapshot(runtimeConfig, structuredClone(sourceConfig));
+      try {
+        const result = await persistSlackChannelMigration({
+          cfg: loadConfig(),
+          accountId: "default",
+          oldChannelId: "C123",
+          newChannelId: "C999",
+        });
+
+        expect(result.migrated).toBe(true);
+        expect(runtimeConfig.channels?.slack?.channels).toEqual({
+          C123: { requireMention: false },
+        });
+        const persisted = JSON.parse(await fs.readFile(configPath, "utf8")) as {
+          channels?: { slack?: { channels?: Record<string, { requireMention?: boolean }> } };
+        };
+        expect(persisted.channels?.slack?.channels).toEqual({
+          C999: { requireMention: false },
+        });
+        expect(loadConfig().channels?.slack?.channels).toEqual({
+          C999: { requireMention: false },
+        });
+      } finally {
+        setRuntimeConfigSnapshotRefreshHandler(null);
+        clearRuntimeConfigSnapshot();
+        clearConfigCache();
+      }
     });
   });
 

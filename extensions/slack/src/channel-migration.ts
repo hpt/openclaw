@@ -1,5 +1,8 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import type { SlackChannelConfig } from "openclaw/plugin-sdk/config-runtime";
+import {
+  writeConfigFile,
+  type OpenClawConfig,
+  type SlackChannelConfig,
+} from "openclaw/plugin-sdk/config-runtime";
 import { normalizeAccountId } from "openclaw/plugin-sdk/routing";
 
 type SlackChannels = Record<string, SlackChannelConfig>;
@@ -99,4 +102,30 @@ export function migrateSlackChannelConfig(params: {
   }
 
   return { migrated, skippedExisting, scopes };
+}
+
+/**
+ * Persist a Slack channel id move.
+ *
+ * `loadConfig()` returns the live runtime snapshot. `writeConfigFile` diffs that
+ * snapshot against the object it receives, so mutating the snapshot in place
+ * produces an empty patch and the following refresh restores the old channel id.
+ */
+export async function persistSlackChannelMigration(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  oldChannelId: string;
+  newChannelId: string;
+}): Promise<SlackChannelMigrationResult> {
+  const nextConfig = structuredClone(params.cfg);
+  const migration = migrateSlackChannelConfig({
+    cfg: nextConfig,
+    accountId: params.accountId,
+    oldChannelId: params.oldChannelId,
+    newChannelId: params.newChannelId,
+  });
+  if (migration.migrated) {
+    await writeConfigFile(nextConfig);
+  }
+  return migration;
 }
