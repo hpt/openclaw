@@ -3,11 +3,7 @@ import {
   readConfigFileSnapshotForWrite,
   writeConfigFile,
 } from "openclaw/plugin-sdk/config-runtime";
-import {
-  loadCronStore,
-  resolveCronStorePath,
-  saveCronStore,
-} from "openclaw/plugin-sdk/config-runtime";
+import { mutateCronStore, resolveCronStorePath } from "openclaw/plugin-sdk/config-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import {
   normalizeTelegramChatId,
@@ -177,28 +173,29 @@ export async function maybePersistResolvedTelegramTarget(params: {
 
   try {
     const storePath = resolveCronStorePath(params.cfg.cron?.store);
-    const store = await loadCronStore(storePath);
-    let cronChanged = false;
-    for (const job of store.jobs) {
-      if (job.delivery?.channel !== "telegram") {
-        continue;
+    // Re-read under the scheduler lock. A snapshot taken before an awaited send
+    // would overwrite cron.add / job-completion persists that landed in between.
+    const cronChanged = await mutateCronStore(storePath, (store) => {
+      let changed = false;
+      for (const job of store.jobs) {
+        if (job.delivery?.channel !== "telegram") {
+          continue;
+        }
+        const nextTarget = rewriteTargetIfMatch({
+          rawValue: job.delivery.to,
+          matchKey,
+          resolvedTarget,
+        });
+        if (!nextTarget) {
+          continue;
+        }
+        job.delivery.to = nextTarget;
+        changed = true;
       }
-      const nextTarget = rewriteTargetIfMatch({
-        rawValue: job.delivery.to,
-        matchKey,
-        resolvedTarget,
-      });
-      if (!nextTarget) {
-        continue;
-      }
-      job.delivery.to = nextTarget;
-      cronChanged = true;
-    }
-    if (cronChanged) {
-      await saveCronStore(storePath, store);
-      if (params.verbose) {
-        writebackLogger.warn(`resolved Telegram cron delivery target ${raw} -> ${resolvedTarget}`);
-      }
+      return changed;
+    });
+    if (cronChanged && params.verbose) {
+      writebackLogger.warn(`resolved Telegram cron delivery target ${raw} -> ${resolvedTarget}`);
     }
   } catch (err) {
     if (params.verbose) {

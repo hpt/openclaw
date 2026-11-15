@@ -8,6 +8,15 @@ const resolveChain = (promise: Promise<unknown>) =>
     () => undefined,
   );
 
+export async function withCronStoreLock<T>(storePath: string, fn: () => Promise<T>): Promise<T> {
+  const storeOp = storeLocks.get(storePath) ?? Promise.resolve();
+  const next = resolveChain(storeOp).then(fn);
+  // Keep the chain alive even when the operation fails.
+  const keepAlive = resolveChain(next);
+  storeLocks.set(storePath, keepAlive);
+  return await next;
+}
+
 export async function locked<T>(state: CronServiceState, fn: () => Promise<T>): Promise<T> {
   const storePath = state.deps.storePath;
   const storeOp = storeLocks.get(storePath) ?? Promise.resolve();
