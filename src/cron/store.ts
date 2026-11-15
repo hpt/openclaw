@@ -4,6 +4,7 @@ import path from "node:path";
 import { expandHomePrefix } from "../infra/home-dir.js";
 import { CONFIG_DIR } from "../utils.js";
 import { parseJsonWithJson5Fallback } from "../utils/parse-json-compat.js";
+import { withCronStoreLock } from "./service/locked.js";
 import type { CronStoreFile } from "./types.js";
 
 export const DEFAULT_CRON_DIR = path.join(CONFIG_DIR, "cron");
@@ -105,6 +106,27 @@ type SaveCronStoreOptions = {
 
 async function setSecureFileMode(filePath: string): Promise<void> {
   await fs.promises.chmod(filePath, 0o600).catch(() => undefined);
+}
+
+/**
+ * Read-modify-write the cron store under the same in-process lock the scheduler uses.
+ * Callers must apply edits to the store passed into `mutator`; that object is the
+ * file contents at lock acquisition, not a snapshot taken earlier.
+ * Returns whether `mutator` reported a change and the store was saved.
+ */
+export async function mutateCronStore(
+  storePath: string,
+  mutator: (store: CronStoreFile) => boolean | Promise<boolean>,
+): Promise<boolean> {
+  return await withCronStoreLock(storePath, async () => {
+    const store = await loadCronStore(storePath);
+    const changed = await mutator(store);
+    if (!changed) {
+      return false;
+    }
+    await saveCronStore(storePath, store);
+    return true;
+  });
 }
 
 export async function saveCronStore(

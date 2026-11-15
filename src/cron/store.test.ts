@@ -3,7 +3,7 @@ import path from "node:path";
 import { setTimeout as scheduleNativeTimeout } from "node:timers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCronStoreHarness } from "./service.test-harness.js";
-import { loadCronStore, resolveCronStorePath, saveCronStore } from "./store.js";
+import { loadCronStore, mutateCronStore, resolveCronStorePath, saveCronStore } from "./store.js";
 import type { CronStoreFile } from "./types.js";
 
 const { makeStorePath } = createCronStoreHarness({ prefix: "openclaw-cron-store-" });
@@ -169,6 +169,53 @@ describe("cron store", () => {
       expect(storeDirMode).toBe(0o700);
     },
   );
+});
+
+describe("mutateCronStore", () => {
+  it("re-reads under the scheduler lock so an overlapping write is not dropped", async () => {
+    const { storePath } = await makeStorePath();
+    await saveCronStore(storePath, makeStore("job-a", true));
+
+    let markEntered: () => void = () => {};
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    let releaseFirst: () => void = () => {};
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const firstWrite = mutateCronStore(storePath, async (store) => {
+      const job = store.jobs[0];
+      if (!job) {
+        return false;
+      }
+      job.delivery = { mode: "announce", channel: "telegram", to: "-100123" };
+      markEntered();
+      await release;
+      return true;
+    });
+
+    await entered;
+    const secondWrite = mutateCronStore(storePath, (store) => {
+      const added = makeStore("job-b", true).jobs[0];
+      if (!added) {
+        return false;
+      }
+      store.jobs.push(added);
+      return true;
+    });
+    releaseFirst();
+    await Promise.all([firstWrite, secondWrite]);
+
+    const loaded = await loadCronStore(storePath);
+    expect(loaded.jobs.map((job) => job.id)).toEqual(["job-a", "job-b"]);
+    expect(loaded.jobs[0]?.delivery).toEqual({
+      mode: "announce",
+      channel: "telegram",
+      to: "-100123",
+    });
+  });
 });
 
 describe("saveCronStore", () => {
