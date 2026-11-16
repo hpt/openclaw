@@ -101,14 +101,14 @@ async function resolveNormalizedFilePath(filePath: string): Promise<string> {
 
 async function isStaleLock(lockPath: string, staleMs: number): Promise<boolean> {
   const payload = await readLockPayload(lockPath);
-  if (payload?.pid && !isPidAlive(payload.pid)) {
-    return true;
-  }
-  if (payload?.createdAt) {
-    const createdAt = Date.parse(payload.createdAt);
-    if (!Number.isFinite(createdAt) || Date.now() - createdAt > staleMs) {
-      return true;
-    }
+  if (payload?.pid) {
+    // A live owner may hold the lock longer than `stale`. Auth refresh keeps
+    // this lock across an unbounded token fetch, and the 30s waiter budget
+    // still has attempts left after that. Deleting the lock then lets the
+    // waiter save an older snapshot over the refreshed credentials.
+    // Dead owners are always reclaimable. Payload-less locks fall through to
+    // mtime so a crashed writer cannot block forever.
+    return !isPidAlive(payload.pid);
   }
   try {
     const stat = await fs.stat(lockPath);
