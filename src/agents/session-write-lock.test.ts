@@ -162,6 +162,26 @@ describe("acquireSessionWriteLock", () => {
     });
   });
 
+  it("does not reclaim a live owner lock older than staleMs", async () => {
+    await withTempSessionLockFile(async ({ sessionFile, lockPath }) => {
+      await fs.writeFile(
+        lockPath,
+        JSON.stringify({
+          pid: process.pid,
+          createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+          starttime: FAKE_STARTTIME,
+        }),
+        "utf8",
+      );
+
+      await expect(
+        acquireSessionWriteLock({ sessionFile, timeoutMs: 80, staleMs: 1_000 }),
+      ).rejects.toThrow(/session file locked/);
+      const payload = JSON.parse(await fs.readFile(lockPath, "utf8")) as { pid?: number };
+      expect(payload.pid).toBe(process.pid);
+    });
+  });
+
   it("reclaims stale lock files", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-lock-"));
     try {
@@ -306,14 +326,15 @@ describe("acquireSessionWriteLock", () => {
       });
 
       expect(result.locks).toHaveLength(3);
-      expect(result.cleaned).toHaveLength(2);
-      expect(result.cleaned.map((entry) => path.basename(entry.lockPath)).toSorted()).toEqual([
+      expect(result.cleaned.map((entry) => path.basename(entry.lockPath))).toEqual([
         "dead.jsonl.lock",
-        "old-live.jsonl.lock",
       ]);
+      const oldLive = result.locks.find((entry) => entry.lockPath === staleAliveLock);
+      expect(oldLive?.stale).toBe(false);
+      expect(oldLive?.removed).toBe(false);
 
       await expect(fs.access(staleDeadLock)).rejects.toThrow();
-      await expect(fs.access(staleAliveLock)).rejects.toThrow();
+      await expect(fs.access(staleAliveLock)).resolves.toBeUndefined();
       await expect(fs.access(freshAliveLock)).resolves.toBeUndefined();
     } finally {
       await fs.rm(root, { recursive: true, force: true });
