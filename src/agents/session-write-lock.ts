@@ -340,10 +340,18 @@ function inspectLockPayload(
   } else if (pidRecycled) {
     staleReasons.push("recycled-pid");
   }
-  if (ageMs === null) {
-    staleReasons.push("invalid-createdAt");
-  } else if (ageMs > staleMs) {
-    staleReasons.push("too-old");
+  // A live, unreycled owner is not stale. Agent runs hold this lock for the
+  // configured timeout (default 48h) and the watchdog only force-releases at
+  // maxHold. Treating age alone as stale lets a second process delete the
+  // lock and rewrite the transcript or session store the owner is still
+  // saving. Dead, missing, and recycled pids still use the age checks below.
+  const ownerAlive = pid !== null && pidAlive && !pidRecycled;
+  if (!ownerAlive) {
+    if (ageMs === null) {
+      staleReasons.push("invalid-createdAt");
+    } else if (ageMs > staleMs) {
+      staleReasons.push("too-old");
+    }
   }
 
   return {
