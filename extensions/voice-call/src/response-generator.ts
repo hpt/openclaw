@@ -196,18 +196,28 @@ export async function generateVoiceResponse(
   // Ensure workspace exists
   await agentRuntime.ensureAgentWorkspace({ dir: workspaceDir });
 
-  // Load or create session entry
-  const sessionStore = agentRuntime.session.loadSessionStore(storePath);
+  // Load or create session entry. Creating the first phone session must not
+  // rewrite the agent store from this snapshot: a chat, heartbeat, or cron
+  // write that lands after the load would be deleted.
   const now = Date.now();
-  let sessionEntry = sessionStore[sessionKey] as SessionEntry | undefined;
+  let sessionEntry = agentRuntime.session.loadSessionStore(storePath)[sessionKey] as
+    | SessionEntry
+    | undefined;
 
   if (!sessionEntry) {
-    sessionEntry = {
+    const created: SessionEntry = {
       sessionId: crypto.randomUUID(),
       updatedAt: now,
     };
-    sessionStore[sessionKey] = sessionEntry;
-    await agentRuntime.session.saveSessionStore(storePath, sessionStore);
+    sessionEntry = created;
+    await agentRuntime.session.updateSessionStore(storePath, (store) => {
+      const current = store[sessionKey] as SessionEntry | undefined;
+      if (current) {
+        sessionEntry = current;
+        return;
+      }
+      store[sessionKey] = created;
+    });
   }
 
   const sessionId = sessionEntry.sessionId;
