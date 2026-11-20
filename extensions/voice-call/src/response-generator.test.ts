@@ -25,6 +25,12 @@ function createAgentRuntime(payloads: Array<Record<string, unknown>>) {
       resolveStorePath: () => "/tmp/openclaw/sessions.json",
       loadSessionStore: () => ({}),
       saveSessionStore: async () => {},
+      updateSessionStore: async (
+        _storePath: string,
+        mutator: (store: Record<string, unknown>) => void,
+      ) => {
+        mutator({});
+      },
       resolveSessionFilePath: () => "/tmp/openclaw/sessions/session.jsonl",
     },
   } as unknown as CoreAgentDeps;
@@ -117,5 +123,61 @@ describe("generateVoiceResponse", () => {
     ]);
 
     expect(result.text).toBe("Absolutely. Tell me what you want to do next.");
+  });
+
+  it("creates a missing voice session without rewriting a stale session-store snapshot", async () => {
+    const freshStore: Record<string, { sessionId: string; updatedAt: number }> = {
+      "agent:main:main": { sessionId: "chat-session", updatedAt: 1 },
+      "agent:main:telegram:direct:1": { sessionId: "live-chat", updatedAt: 2 },
+    };
+    const saveSessionStore = vi.fn(async () => {
+      throw new Error("full snapshot save should not run");
+    });
+    const updateSessionStore = vi.fn(
+      async (_storePath: string, mutator: (store: typeof freshStore) => void) => {
+        mutator(freshStore);
+      },
+    );
+    const { runtime, runEmbeddedPiAgent } = createAgentRuntime([
+      { text: '{"spoken":"Calling you back."}' },
+    ]);
+    runtime.session.loadSessionStore = (() => ({
+      "agent:main:main": { sessionId: "stale-chat", updatedAt: 1 },
+    })) as typeof runtime.session.loadSessionStore;
+    runtime.session.saveSessionStore = saveSessionStore as typeof runtime.session.saveSessionStore;
+    runtime.session.updateSessionStore =
+      updateSessionStore as typeof runtime.session.updateSessionStore;
+
+    const { result } = await runGenerateVoiceResponse([], { runtime });
+
+    expect(result.text).toBe("Calling you back.");
+    expect(saveSessionStore).not.toHaveBeenCalled();
+    expect(updateSessionStore).toHaveBeenCalledTimes(1);
+    expect(freshStore["agent:main:telegram:direct:1"]?.sessionId).toBe("live-chat");
+    expect(freshStore["voice:15550001111"]?.sessionId).toEqual(expect.any(String));
+    expect(runEmbeddedPiAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: freshStore["voice:15550001111"]?.sessionId,
+      }),
+    );
+  });
+
+  it("reuses an existing voice session without writing the session store", async () => {
+    const saveSessionStore = vi.fn(async () => {});
+    const updateSessionStore = vi.fn(async () => {});
+    const { runtime } = createAgentRuntime([{ text: '{"spoken":"Still here."}' }]);
+    runtime.session.loadSessionStore = (() => ({
+      "voice:15550001111": { sessionId: "existing-voice", updatedAt: 5 },
+      "agent:main:main": { sessionId: "chat-session", updatedAt: 1 },
+    })) as typeof runtime.session.loadSessionStore;
+    runtime.session.saveSessionStore = saveSessionStore as typeof runtime.session.saveSessionStore;
+    runtime.session.updateSessionStore =
+      updateSessionStore as typeof runtime.session.updateSessionStore;
+
+    const { result } = await runGenerateVoiceResponse([], { runtime });
+
+    expect(result.text).toBe("Still here.");
+    expect(saveSessionStore).not.toHaveBeenCalled();
+    expect(updateSessionStore).not.toHaveBeenCalled();
   });
 });
