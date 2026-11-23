@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import type { SessionEntry } from "../config/sessions.js";
 import type { loadSessionEntry as loadSessionEntryType } from "./session-utils.js";
 
 const buildSessionLookup = (
@@ -48,9 +49,15 @@ vi.mock("../config/config.js", () => ({
   loadConfig: vi.fn(() => ({ session: { mainKey: "agent:main:main" } })),
   STATE_DIR: "/tmp/openclaw-state",
 }));
-vi.mock("../config/sessions.js", () => ({
-  updateSessionStore: vi.fn(),
-}));
+vi.mock("../config/sessions.js", async () => {
+  const actual = await vi.importActual<typeof import("../config/sessions/types.js")>(
+    "../config/sessions/types.js",
+  );
+  return {
+    updateSessionStore: vi.fn(),
+    mergeSessionEntry: actual.mergeSessionEntry,
+  };
+});
 vi.mock("../infra/push-apns.js", () => ({
   registerApnsRegistration: registerApnsRegistrationMock,
 }));
@@ -440,6 +447,75 @@ describe("voice transcript events", () => {
       opts.runId,
       expect.objectContaining({ clientRunId: expect.stringMatching(/^voice-/) }),
     );
+  });
+
+  it("preserves session overrides when a voice transcript refreshes the store", async () => {
+    const ctx = buildCtx();
+    const existing = {
+      sessionId: "sid-voice-main",
+      updatedAt: 1_000,
+      thinkingLevel: "low",
+      verboseLevel: "on",
+      reasoningLevel: "off",
+      systemSent: true,
+      sendPolicy: "allow",
+      lastChannel: "telegram",
+      lastTo: "123",
+      lastThreadId: 42,
+      lastAccountId: "acct-1",
+      modelOverride: "gpt-5.4",
+      providerOverride: "openai",
+      execSecurity: "deny",
+      execAsk: "always",
+      sessionFile: "/tmp/sessions/sid-voice-main.jsonl",
+      cliSessionIds: { codex: "cli-1" },
+    } as SessionEntry;
+    loadSessionEntryMock.mockReturnValueOnce({
+      ...buildSessionLookup("agent:main:main", {
+        sessionId: existing.sessionId,
+        updatedAt: existing.updatedAt,
+        lastChannel: "telegram",
+        lastTo: "123",
+      }),
+      entry: {
+        ...existing,
+        modelOverride: "stale-model",
+        execSecurity: "full",
+      },
+      canonicalKey: "agent:main:main",
+    });
+
+    let written: Record<string, SessionEntry> | undefined;
+    updateSessionStoreMock.mockImplementation(async (_storePath, update) => {
+      const store: Record<string, SessionEntry> = {
+        "agent:main:main": { ...existing },
+      };
+      await update(store);
+      written = store;
+    });
+
+    await handleNodeEvent(ctx, "node-voice", {
+      event: "voice.transcript",
+      payloadJSON: JSON.stringify({
+        text: "what's the weather",
+        sessionKey: "agent:main:main",
+      }),
+    });
+
+    const saved = written?.["agent:main:main"];
+    expect(saved?.modelOverride).toBe("gpt-5.4");
+    expect(saved?.providerOverride).toBe("openai");
+    expect(saved?.execSecurity).toBe("deny");
+    expect(saved?.execAsk).toBe("always");
+    expect(saved?.sessionFile).toBe(existing.sessionFile);
+    expect(saved?.lastThreadId).toBe(42);
+    expect(saved?.lastAccountId).toBe("acct-1");
+    expect(saved?.cliSessionIds).toEqual({ codex: "cli-1" });
+    expect(saved?.sessionId).toBe("sid-voice-main");
+    expect(saved?.thinkingLevel).toBe("low");
+    expect(saved?.lastChannel).toBe("telegram");
+    expect(saved?.lastTo).toBe("123");
+    expect(saved?.updatedAt).toBeGreaterThan(existing.updatedAt);
   });
 
   it("does not block agent dispatch when session-store touch fails", async () => {

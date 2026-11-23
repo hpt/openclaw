@@ -3,7 +3,7 @@ import { normalizeChannelId } from "../channels/plugins/index.js";
 import { createOutboundSendDeps } from "../cli/outbound-send-deps.js";
 import { agentCommandFromIngress } from "../commands/agent.js";
 import { loadConfig } from "../config/config.js";
-import { updateSessionStore } from "../config/sessions.js";
+import { mergeSessionEntry, updateSessionStore } from "../config/sessions.js";
 import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { deliverOutboundPayloads } from "../infra/outbound/deliver.js";
@@ -139,7 +139,6 @@ async function touchSessionStore(params: {
   sessionKey: string;
   storePath: LoadedSessionEntry["storePath"];
   canonicalKey: LoadedSessionEntry["canonicalKey"];
-  entry: LoadedSessionEntry["entry"];
   sessionId: string;
   now: number;
 }) {
@@ -153,18 +152,14 @@ async function touchSessionStore(params: {
       key: params.sessionKey,
       store,
     });
-    store[primaryKey] = {
-      sessionId: params.sessionId,
+    const existing = store[primaryKey];
+    // Merge under the lock. Replacing the row from the pre-lock snapshot
+    // dropped model overrides, exec policy, delivery routing, and transcript
+    // metadata that this touch did not copy.
+    store[primaryKey] = mergeSessionEntry(existing, {
+      sessionId: existing?.sessionId ?? params.sessionId,
       updatedAt: params.now,
-      thinkingLevel: params.entry?.thinkingLevel,
-      fastMode: params.entry?.fastMode,
-      verboseLevel: params.entry?.verboseLevel,
-      reasoningLevel: params.entry?.reasoningLevel,
-      systemSent: params.entry?.systemSent,
-      sendPolicy: params.entry?.sendPolicy,
-      lastChannel: params.entry?.lastChannel,
-      lastTo: params.entry?.lastTo,
-    };
+    });
   });
 }
 
@@ -174,7 +169,6 @@ function queueSessionStoreTouch(params: {
   sessionKey: string;
   storePath: LoadedSessionEntry["storePath"];
   canonicalKey: LoadedSessionEntry["canonicalKey"];
-  entry: LoadedSessionEntry["entry"];
   sessionId: string;
   now: number;
 }) {
@@ -183,7 +177,6 @@ function queueSessionStoreTouch(params: {
     sessionKey: params.sessionKey,
     storePath: params.storePath,
     canonicalKey: params.canonicalKey,
-    entry: params.entry,
     sessionId: params.sessionId,
     now: params.now,
   }).catch((err) => {
@@ -284,7 +277,6 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
         sessionKey,
         storePath,
         canonicalKey,
-        entry,
         sessionId,
         now,
       });
@@ -388,7 +380,7 @@ export const handleNodeEvent = async (ctx: NodeEventContext, nodeId: string, evt
       const { storePath, entry, canonicalKey } = loadSessionEntry(sessionKey);
       const now = Date.now();
       const sessionId = entry?.sessionId ?? randomUUID();
-      await touchSessionStore({ cfg, sessionKey, storePath, canonicalKey, entry, sessionId, now });
+      await touchSessionStore({ cfg, sessionKey, storePath, canonicalKey, sessionId, now });
 
       if (deliverRequested && (!channel || !to)) {
         const entryChannel =
