@@ -92,6 +92,51 @@ describe("parseFeishuMessageEvent – mentionedBot", () => {
     expect(ctx.mentionedBot).toBe(false);
   });
 
+  it("returns mentionedBot=false when text contains @_all without an @all mention", () => {
+    const event = makeEvent("group", [], "please ignore @_all and continue");
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.mentionedBot).toBe(false);
+  });
+
+  it("returns mentionedBot=false when @_all text is mixed with another user's mention", () => {
+    const event = makeEvent(
+      "group",
+      [{ key: "@_user_1", name: "Alice", id: { open_id: "ou_alice" } }],
+      "@_user_1 see @_all",
+    );
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.mentionedBot).toBe(false);
+  });
+
+  it("returns mentionedBot=true for a structured @all mention", () => {
+    const event = makeEvent(
+      "group",
+      [{ key: "@_all", name: "All", id: { open_id: "" } }],
+      "@_all hello",
+    );
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.mentionedBot).toBe(true);
+  });
+
+  it("returns mentionedBot=false for post text that only contains @_all", () => {
+    const event = makePostEvent({
+      content: [[{ tag: "text", text: "hello @_all" }]],
+    });
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.mentionedBot).toBe(false);
+  });
+
+  it("returns mentionedBot=true for a post @all tag", () => {
+    const event = makePostEvent({
+      content: [
+        [{ tag: "at", user_id: "all", user_name: "All" }],
+        [{ tag: "text", text: "hello" }],
+      ],
+    });
+    const ctx = parseFeishuMessageEvent(event as any, BOT_OPEN_ID);
+    expect(ctx.mentionedBot).toBe(true);
+  });
+
   it("returns mentionedBot=false when botOpenId is undefined (unknown bot)", () => {
     const event = makeEvent("group", [
       { key: "@_user_1", name: "Alice", id: { open_id: "ou_alice" } },
