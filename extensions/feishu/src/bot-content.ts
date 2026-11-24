@@ -227,19 +227,31 @@ export function parseMergeForwardContent(params: {
   return lines.join("\n");
 }
 
+function isFeishuAtAllMention(mention: FeishuMention): boolean {
+  // Feishu @all is a mention entry whose key is the @_all placeholder.
+  // Matching the raw content string would treat typed text as a mention.
+  return mention.key === "@_all";
+}
+
+function isFeishuAtAllTarget(id: string): boolean {
+  return id === "all" || id === "@_all";
+}
+
 export function checkBotMentioned(event: FeishuMessageLike, botOpenId?: string): boolean {
   if (!botOpenId) {
     return false;
   }
-  if ((event.message.content ?? "").includes("@_all")) {
+  const mentions = event.message.mentions ?? [];
+  if (mentions.some((mention) => isFeishuAtAllMention(mention))) {
     return true;
   }
-  const mentions = event.message.mentions ?? [];
   if (mentions.length > 0) {
-    return mentions.some((mention) => mention.id.open_id === botOpenId);
+    return mentions.some((mention) => mention.id?.open_id === botOpenId);
   }
   if (event.message.message_type === "post") {
-    return parsePostContent(event.message.content).mentionedOpenIds.some((id) => id === botOpenId);
+    return parsePostContent(event.message.content).mentionedOpenIds.some(
+      (id) => id === botOpenId || isFeishuAtAllTarget(id),
+    );
   }
   return false;
 }
