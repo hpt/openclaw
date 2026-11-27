@@ -84,7 +84,10 @@ describe("redactConfigSnapshot", () => {
           signingSecret: "slack-signing-secret-value-1234",
           token: "secret-slack-token-value-here",
         },
-        feishu: { appSecret: "feishu-app-secret-value-here-1234" },
+        feishu: {
+          appSecret: "feishu-app-secret-value-here-1234",
+          encryptKey: "feishu-encrypt-key-value-here-1234",
+        },
       },
       models: {
         providers: {
@@ -104,9 +107,49 @@ describe("redactConfigSnapshot", () => {
     expect(cfg.channels.slack.signingSecret).toBe(REDACTED_SENTINEL);
     expect(cfg.channels.slack.token).toBe(REDACTED_SENTINEL);
     expect(cfg.channels.feishu.appSecret).toBe(REDACTED_SENTINEL);
+    expect(cfg.channels.feishu.encryptKey).toBe(REDACTED_SENTINEL);
     expect(cfg.models.providers.openai.apiKey).toBe(REDACTED_SENTINEL);
     expect(cfg.models.providers.openai.baseUrl).toBe("https://api.openai.com");
     expect(cfg.shortSecret.token).toBe(REDACTED_SENTINEL);
+    expect(result.raw).not.toContain("feishu-encrypt-key-value-here-1234");
+  });
+
+  it("redacts feishu encryptKey when ui hints only mark sibling secrets", () => {
+    const encryptKey = "feishu-encrypt-key-value-here-1234";
+    const snapshot = makeSnapshot({
+      channels: {
+        feishu: {
+          appSecret: "feishu-app-secret-value-here-1234",
+          encryptKey,
+          verificationToken: "feishu-verification-token-value",
+          accounts: {
+            default: {
+              encryptKey: "feishu-account-encrypt-key-value-1234",
+            },
+          },
+        },
+      },
+    });
+    const hints: ConfigUiHints = {
+      "channels.feishu.appSecret": { sensitive: true },
+      "channels.feishu.verificationToken": { sensitive: true },
+    };
+
+    const result = redactConfigSnapshot(snapshot, hints);
+    const cfg = result.config as typeof snapshot.config;
+
+    expect(cfg.channels.feishu.appSecret).toBe(REDACTED_SENTINEL);
+    expect(cfg.channels.feishu.encryptKey).toBe(REDACTED_SENTINEL);
+    expect(cfg.channels.feishu.verificationToken).toBe(REDACTED_SENTINEL);
+    expect(cfg.channels.feishu.accounts.default.encryptKey).toBe(REDACTED_SENTINEL);
+    expect(result.raw).not.toContain(encryptKey);
+    expect(result.raw).not.toContain("feishu-account-encrypt-key-value-1234");
+
+    const restored = restoreRedactedValues(result.config, snapshot.config, hints);
+    expect(restored.channels.feishu.encryptKey).toBe(encryptKey);
+    expect(restored.channels.feishu.accounts.default.encryptKey).toBe(
+      "feishu-account-encrypt-key-value-1234",
+    );
   });
 
   it("redacts googlechat serviceAccount object payloads", () => {

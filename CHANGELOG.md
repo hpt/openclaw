@@ -43,6 +43,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/ports: parse Docker Compose-style `OPENCLAW_GATEWAY_PORT` host publish values correctly without reviving the legacy `CLAWDBOT_GATEWAY_PORT` override. (#44083) Thanks @bebule.
 - Feishu/MSTeams message tool: keep provider-native `card` payloads optional in merged tool schemas so media-only sends stop failing validation before channel runtime dispatch. (#53715) Thanks @lndyzwdxhs.
 - Feishu/startup: keep `requireMention` enforcement strict when bot identity startup probes fail, raise the startup bot-info timeout to 30s, and add cancellable background identity recovery so mention-gated groups recover without noisy fallback. (#43788) Thanks @lefarcen.
+- Security/config: redact Feishu `encryptKey` values in config snapshots and Control UI diffs. `config.get` was returning the webhook signing secret because the field name does not match the token, password, or secret redaction patterns.
 
 ## 2026.3.23
 
