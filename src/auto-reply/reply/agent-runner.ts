@@ -523,6 +523,55 @@ export async function runReplyAgent(params: {
       cliSessionId,
     });
 
+    // Persist compaction before the empty-reply returns below. A turn can
+    // compact and then have nothing left to deliver (message tool already
+    // sent, NO_REPLY, or heartbeat strip). The rotated transcript pointer
+    // and compaction count still have to land before the next run starts.
+    let autoCompactionNotice: string | undefined;
+    if (autoCompactionCount > 0) {
+      const previousSessionId = activeSessionEntry?.sessionId ?? followupRun.run.sessionId;
+      const count = await incrementRunCompactionCount({
+        sessionEntry: activeSessionEntry,
+        sessionStore: activeSessionStore,
+        sessionKey,
+        storePath,
+        amount: autoCompactionCount,
+        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+        contextTokensUsed,
+        newSessionId: runResult.meta?.agentMeta?.sessionId,
+      });
+      const refreshedSessionEntry =
+        sessionKey && activeSessionStore ? activeSessionStore[sessionKey] : undefined;
+      if (refreshedSessionEntry) {
+        activeSessionEntry = refreshedSessionEntry;
+        refreshQueuedFollowupSession({
+          key: queueKey,
+          previousSessionId,
+          nextSessionId: refreshedSessionEntry.sessionId,
+          nextSessionFile: refreshedSessionEntry.sessionFile,
+        });
+      }
+
+      // Inject post-compaction workspace context for the next agent turn
+      if (sessionKey) {
+        const workspaceDir = process.cwd();
+        readPostCompactionContext(workspaceDir, cfg)
+          .then((contextContent) => {
+            if (contextContent) {
+              enqueueSystemEvent(contextContent, { sessionKey });
+            }
+          })
+          .catch(() => {
+            // Silent failure — post-compaction context is best-effort
+          });
+      }
+
+      if (verboseEnabled) {
+        const suffix = typeof count === "number" ? ` (count ${count})` : "";
+        autoCompactionNotice = `🧹 Auto-compaction complete${suffix}.`;
+      }
+    }
+
     // Drain any late tool/block deliveries before deciding there's "nothing to send".
     // Otherwise, a late typing trigger (e.g. from a tool callback) can outlive the run and
     // keep the typing indicator stuck.
@@ -709,48 +758,8 @@ export async function runReplyAgent(params: {
       }
     }
 
-    if (autoCompactionCount > 0) {
-      const previousSessionId = activeSessionEntry?.sessionId ?? followupRun.run.sessionId;
-      const count = await incrementRunCompactionCount({
-        sessionEntry: activeSessionEntry,
-        sessionStore: activeSessionStore,
-        sessionKey,
-        storePath,
-        amount: autoCompactionCount,
-        lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-        contextTokensUsed,
-        newSessionId: runResult.meta?.agentMeta?.sessionId,
-      });
-      const refreshedSessionEntry =
-        sessionKey && activeSessionStore ? activeSessionStore[sessionKey] : undefined;
-      if (refreshedSessionEntry) {
-        activeSessionEntry = refreshedSessionEntry;
-        refreshQueuedFollowupSession({
-          key: queueKey,
-          previousSessionId,
-          nextSessionId: refreshedSessionEntry.sessionId,
-          nextSessionFile: refreshedSessionEntry.sessionFile,
-        });
-      }
-
-      // Inject post-compaction workspace context for the next agent turn
-      if (sessionKey) {
-        const workspaceDir = process.cwd();
-        readPostCompactionContext(workspaceDir, cfg)
-          .then((contextContent) => {
-            if (contextContent) {
-              enqueueSystemEvent(contextContent, { sessionKey });
-            }
-          })
-          .catch(() => {
-            // Silent failure — post-compaction context is best-effort
-          });
-      }
-
-      if (verboseEnabled) {
-        const suffix = typeof count === "number" ? ` (count ${count})` : "";
-        verboseNotices.push({ text: `🧹 Auto-compaction complete${suffix}.` });
-      }
+    if (autoCompactionNotice) {
+      verboseNotices.push({ text: autoCompactionNotice });
     }
     if (verboseNotices.length > 0) {
       finalPayloads = [...verboseNotices, ...finalPayloads];

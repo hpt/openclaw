@@ -532,6 +532,74 @@ describe("runReplyAgent auto-compaction token update", () => {
     );
   });
 
+  it("tracks rotated transcripts when a compacted turn has no deliverable reply", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-compact-silent-"));
+    const storePath = path.join(tmp, "sessions.json");
+    const sessionKey = "main";
+    const sessionEntry = {
+      sessionId: "session",
+      sessionFile: path.join(tmp, "session.jsonl"),
+      updatedAt: Date.now(),
+      totalTokens: 181_000,
+      compactionCount: 0,
+    };
+
+    await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
+
+    runEmbeddedPiAgentMock.mockResolvedValue({
+      payloads: [],
+      meta: {
+        agentMeta: {
+          sessionId: "session-rotated",
+          usage: { input: 190_000, output: 8_000, total: 198_000 },
+          lastCallUsage: { input: 10_000, output: 3_000, total: 13_000 },
+          compactionCount: 1,
+        },
+      },
+    });
+
+    const config = {
+      agents: { defaults: { compaction: { memoryFlush: { enabled: false } } } },
+    };
+    const { typing, sessionCtx, resolvedQueue, followupRun } = createBaseRun({
+      storePath,
+      sessionEntry,
+      config,
+    });
+
+    await runReplyAgent({
+      commandBody: "hello",
+      followupRun,
+      queueKey: "main",
+      resolvedQueue,
+      shouldSteer: false,
+      shouldFollowup: false,
+      isActive: false,
+      isStreaming: false,
+      typing,
+      sessionCtx,
+      sessionEntry,
+      sessionStore: { [sessionKey]: sessionEntry },
+      sessionKey,
+      storePath,
+      defaultModel: "anthropic/claude-opus-4-5",
+      agentCfgContextTokens: 200_000,
+      resolvedVerboseLevel: "off",
+      isNewSession: false,
+      blockStreamingEnabled: false,
+      resolvedBlockStreamingBreak: "message_end",
+      shouldInjectGroupIntro: false,
+      typingMode: "instant",
+    });
+
+    const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
+    expect(stored[sessionKey].compactionCount).toBe(1);
+    expect(stored[sessionKey].sessionId).toBe("session-rotated");
+    expect(await normalizeComparablePath(stored[sessionKey].sessionFile)).toBe(
+      await normalizeComparablePath(path.join(tmp, "session-rotated.jsonl")),
+    );
+  });
+
   it("accumulates compactions across fallback attempts without double-counting a single attempt", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-compact-fallback-"));
     const storePath = path.join(tmp, "sessions.json");
