@@ -283,6 +283,38 @@ export function createFollowupRunner(params: {
         });
       }
 
+      // Record compaction before payload filtering. Tool-only, NO_REPLY, and
+      // messaging-tool turns often have nothing left to send, but the embedded
+      // run may still have rotated the transcript. Skipping this leaves the
+      // store and queued runs pointed at the pre-compaction file.
+      let autoCompactionCountForNotice: number | undefined;
+      if (autoCompactionCount > 0) {
+        const previousSessionId = queued.run.sessionId;
+        autoCompactionCountForNotice = await incrementRunCompactionCount({
+          sessionEntry,
+          sessionStore,
+          sessionKey,
+          storePath,
+          amount: autoCompactionCount,
+          lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
+          contextTokensUsed,
+          newSessionId: runResult.meta?.agentMeta?.sessionId,
+        });
+        const refreshedSessionEntry =
+          sessionKey && sessionStore ? sessionStore[sessionKey] : undefined;
+        if (refreshedSessionEntry) {
+          const queueKey = queued.run.sessionKey ?? sessionKey;
+          if (queueKey) {
+            refreshQueuedFollowupSession({
+              key: queueKey,
+              previousSessionId,
+              nextSessionId: refreshedSessionEntry.sessionId,
+              nextSessionFile: refreshedSessionEntry.sessionFile,
+            });
+          }
+        }
+      }
+
       const payloadArray = runResult.payloads ?? [];
       if (payloadArray.length === 0) {
         return;
@@ -344,37 +376,14 @@ export function createFollowupRunner(params: {
         return;
       }
 
-      if (autoCompactionCount > 0) {
-        const previousSessionId = queued.run.sessionId;
-        const count = await incrementRunCompactionCount({
-          sessionEntry,
-          sessionStore,
-          sessionKey,
-          storePath,
-          amount: autoCompactionCount,
-          lastCallUsage: runResult.meta?.agentMeta?.lastCallUsage,
-          contextTokensUsed,
-          newSessionId: runResult.meta?.agentMeta?.sessionId,
+      if (autoCompactionCount > 0 && queued.run.verboseLevel && queued.run.verboseLevel !== "off") {
+        const suffix =
+          typeof autoCompactionCountForNotice === "number"
+            ? ` (count ${autoCompactionCountForNotice})`
+            : "";
+        finalPayloads.unshift({
+          text: `🧹 Auto-compaction complete${suffix}.`,
         });
-        const refreshedSessionEntry =
-          sessionKey && sessionStore ? sessionStore[sessionKey] : undefined;
-        if (refreshedSessionEntry) {
-          const queueKey = queued.run.sessionKey ?? sessionKey;
-          if (queueKey) {
-            refreshQueuedFollowupSession({
-              key: queueKey,
-              previousSessionId,
-              nextSessionId: refreshedSessionEntry.sessionId,
-              nextSessionFile: refreshedSessionEntry.sessionFile,
-            });
-          }
-        }
-        if (queued.run.verboseLevel && queued.run.verboseLevel !== "off") {
-          const suffix = typeof count === "number" ? ` (count ${count})` : "";
-          finalPayloads.unshift({
-            text: `🧹 Auto-compaction complete${suffix}.`,
-          });
-        }
       }
 
       await sendFollowupPayloads(finalPayloads, queued);

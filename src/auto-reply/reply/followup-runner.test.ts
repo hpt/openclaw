@@ -473,6 +473,131 @@ describe("createFollowupRunner compaction", () => {
     );
   });
 
+  it("tracks rotated transcripts when a compacted followup has no deliverable reply", async () => {
+    const storePath = path.join(
+      await fs.mkdtemp(path.join(tmpdir(), "openclaw-compaction-silent-")),
+      "sessions.json",
+    );
+    const sessionFile = path.join(path.dirname(storePath), "session.jsonl");
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      sessionFile,
+      updatedAt: Date.now(),
+    };
+    const sessionStore: Record<string, SessionEntry> = {
+      main: sessionEntry,
+    };
+
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: {
+        agentMeta: {
+          sessionId: "session-rotated",
+          compactionCount: 1,
+          lastCallUsage: { input: 10_000, output: 3_000, total: 13_000 },
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      opts: { onBlockReply: vi.fn(async () => {}) },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      sessionEntry,
+      sessionStore,
+      sessionKey: "main",
+      storePath,
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    const queuedNext = createQueuedRun({
+      prompt: "next",
+      run: {
+        sessionId: "session",
+        sessionFile,
+      },
+    });
+    enqueueFollowupRun("main", queuedNext, { mode: "queue" });
+
+    await runner(
+      createQueuedRun({
+        run: {
+          sessionId: "session",
+          sessionFile,
+        },
+      }),
+    );
+
+    expect(sessionStore.main.compactionCount).toBe(1);
+    expect(sessionStore.main.sessionId).toBe("session-rotated");
+    expect(await normalizeComparablePath(sessionStore.main.sessionFile ?? "")).toBe(
+      await normalizeComparablePath(path.join(path.dirname(storePath), "session-rotated.jsonl")),
+    );
+    expect(queuedNext.run.sessionId).toBe("session-rotated");
+    expect(await normalizeComparablePath(queuedNext.run.sessionFile)).toBe(
+      await normalizeComparablePath(path.join(path.dirname(storePath), "session-rotated.jsonl")),
+    );
+  });
+
+  it("tracks rotated transcripts when messaging-tool delivery suppresses the followup reply", async () => {
+    const storePath = path.join(
+      await fs.mkdtemp(path.join(tmpdir(), "openclaw-compaction-tool-")),
+      "sessions.json",
+    );
+    const sessionFile = path.join(path.dirname(storePath), "session.jsonl");
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      sessionFile,
+      updatedAt: Date.now(),
+    };
+    const sessionStore: Record<string, SessionEntry> = {
+      main: sessionEntry,
+    };
+    const onBlockReply = vi.fn(async () => {});
+
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "sent via tool" }],
+      messagingToolSentTargets: [{ tool: "slack", provider: "slack", to: "channel:C1" }],
+      meta: {
+        agentMeta: {
+          sessionId: "session-rotated",
+          compactionCount: 1,
+          lastCallUsage: { input: 10_000, output: 3_000, total: 13_000 },
+        },
+      },
+    });
+
+    const runner = createFollowupRunner({
+      opts: { onBlockReply },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      sessionEntry,
+      sessionStore,
+      sessionKey: "main",
+      storePath,
+      defaultModel: "anthropic/claude-opus-4-5",
+    });
+
+    await runner(
+      createQueuedRun({
+        originatingChannel: "slack",
+        originatingTo: "channel:C1",
+        run: {
+          messageProvider: "slack",
+          sessionId: "session",
+          sessionFile,
+        },
+      }),
+    );
+
+    expect(onBlockReply).not.toHaveBeenCalled();
+    expect(sessionStore.main.compactionCount).toBe(1);
+    expect(sessionStore.main.sessionId).toBe("session-rotated");
+    expect(await normalizeComparablePath(sessionStore.main.sessionFile ?? "")).toBe(
+      await normalizeComparablePath(path.join(path.dirname(storePath), "session-rotated.jsonl")),
+    );
+  });
+
   it("does not count failed compaction end events in followup runs", async () => {
     const storePath = path.join(
       await fs.mkdtemp(path.join(tmpdir(), "openclaw-compaction-failed-")),
